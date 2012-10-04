@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/queue.h>
 
 #include "odx.h"
 
@@ -9,6 +10,17 @@
 #define HEADER "[Desktop Entry]"
 
 char *unsquashfs_single_file(const char *image_name, const char *file_name);
+
+struct Entry {
+	SLIST_ENTRY(Entry) next;
+	char *name;
+	char *value;
+};
+
+struct ParserData {
+	SLIST_HEAD(Entries, Entry) head;
+	char *buf;
+};
 
 struct ParserData *openMetadata(const char *odx_filename)
 {
