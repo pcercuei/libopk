@@ -10,13 +10,13 @@
 
 char *unsquashfs_single_file(const char *image_name, const char *file_name);
 
-struct ParserData *openMetadata(const char *fn)
+struct ParserData *openMetadata(const char *odx_filename)
 {
 	struct ParserData *pdata;
 	char *buf;
 
 	/* Extract the meta-data from the OD package */
-	buf = unsquashfs_single_file(fn, METADATA_FN);
+	buf = unsquashfs_single_file(odx_filename, METADATA_FN);
 	if (!buf)
 		return NULL;
 

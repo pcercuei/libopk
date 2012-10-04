@@ -15,7 +15,7 @@ struct ParserData {
 	char *buf;
 };
 
-struct ParserData *openMetadata(const char *fn);
+struct ParserData *openMetadata(const char *odx_filename);
 void closeMetadata(struct ParserData *pdata);
 
 char *readParam(struct ParserData *pdata, const char *name);
