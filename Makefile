@@ -21,6 +21,7 @@ $(LIBODX): $(OBJS)
 
 install: $(LIBODX)
 	$(INSTALL) -m 0644 $(LIBODX) $(DESTDIR)/lib
+	ln -s $(DESTDIR)/lib/$(LIBODX) $(DESTDIR)/lib/$(SONAME)
 	$(INSTALL) -m 0644 odx.h $(DESTDIR)/include
 
 clean:
