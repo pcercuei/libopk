@@ -22,7 +22,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * unsquashfs-min.c
+ * unsqfs.c
  *
  * Unsquash a squashfs filesystem with minimal support. This code is
  * for little endian only, ignores uid/gid, ignores xattr, only works
@@ -33,13 +33,13 @@
  *
  * To build as a stand-alone test application:
  *
- *    gcc -O2 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE \
- *       -DTESTING -Wall unsquashfs-min.c -lz -llzo2 -o unsquashfs-func
+ *    gcc -O2 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE \
+ *       -DTESTING -Wall unsqfs.c -lz -llzo2 -o unsqfs-test
  *
  * To build as a part of a library or application compile this file
  * and link with the following CFLAGS and LDFLAGS:
  *
- *    CFLAGS += -O2 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE
+ *    CFLAGS += -O2 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE
  *    LDFLAGS += -lz -llzo2
  */
 
