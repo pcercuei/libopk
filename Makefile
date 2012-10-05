@@ -3,8 +3,8 @@ DESTDIR ?= /usr/local
 
 VERSION = 0.1
 
-SONAME = libodx.so
-LIBODX = $(SONAME).$(VERSION)
+SONAME = libopk.so
+LIBOPK = $(SONAME).$(VERSION)
 
 CC = $(CROSS_COMPILE)gcc
 INSTALL ?= install
@@ -12,17 +12,17 @@ INSTALL ?= install
 CFLAGS += -fPIC
 LDFLAGS += -llzo2 -lz
 
-OBJS = libodx.o unsqfs.o
+OBJS = libopk.o unsqfs.o
 
-all: $(LIBODX)
+all: $(LIBOPK)
 
-$(LIBODX): $(OBJS)
+$(LIBOPK): $(OBJS)
 	$(CC) -shared -Wl,-soname,$(SONAME) -o $@ $^ $(LDFLAGS)
 
-install: $(LIBODX)
-	$(INSTALL) -m 0644 $(LIBODX) $(DESTDIR)/lib
-	-ln -s $(DESTDIR)/lib/$(LIBODX) $(DESTDIR)/lib/$(SONAME)
-	$(INSTALL) -m 0644 odx.h $(DESTDIR)/include
+install: $(LIBOPK)
+	$(INSTALL) -m 0644 $(LIBOPK) $(DESTDIR)/lib
+	-ln -s $(DESTDIR)/lib/$(LIBOPK) $(DESTDIR)/lib/$(SONAME)
+	$(INSTALL) -m 0644 opk.h $(DESTDIR)/include
 
 clean:
-	-rm -f $(OBJS) $(LIBODX)
+	-rm -f $(OBJS) $(LIBOPK)

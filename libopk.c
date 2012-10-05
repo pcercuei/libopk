@@ -4,7 +4,7 @@
 #include <string.h>
 #include <sys/queue.h>
 
-#include "odx.h"
+#include "opk.h"
 
 #define METADATA_FN "METADATA.desktop"
 #define HEADER "[Desktop Entry]"
@@ -22,13 +22,13 @@ struct ParserData {
 	char *buf;
 };
 
-struct ParserData *openMetadata(const char *odx_filename)
+struct ParserData *openMetadata(const char *opk_filename)
 {
 	struct ParserData *pdata;
 	char *buf;
 
 	/* Extract the meta-data from the OD package */
-	buf = unsquashfs_single_file(odx_filename, METADATA_FN);
+	buf = unsquashfs_single_file(opk_filename, METADATA_FN);
 	if (!buf)
 		return NULL;
 
