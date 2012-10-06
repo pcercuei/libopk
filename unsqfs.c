@@ -357,21 +357,21 @@ struct pathnames {
 #define PATHS_ALLOC_SIZE 10
 
 
-struct squashfs_super_block sBlk;
-struct squashfs_fragment_entry *fragment_table;
+static struct squashfs_super_block sBlk;
+static struct squashfs_fragment_entry *fragment_table;
 
-int bytes = 0, file_count = 0, dir_count = 0;
-struct cache *fragment_cache, *data_cache;
-char *inode_table = NULL, *directory_table = NULL;
-struct hash_table_entry *inode_table_hash[65536], *directory_table_hash[65536];
-int fd;
-unsigned int block_size;
-unsigned int block_log;
-char **created_inode;
-char *zero_data = NULL;
-unsigned int cur_blocks = 0;
+static int bytes = 0, file_count = 0, dir_count = 0;
+static struct cache *fragment_cache, *data_cache;
+static char *inode_table = NULL, *directory_table = NULL;
+static struct hash_table_entry *inode_table_hash[65536], *directory_table_hash[65536];
+static int fd;
+static unsigned int block_size;
+static unsigned int block_log;
+static char **created_inode;
+static char *zero_data = NULL;
+static unsigned int cur_blocks = 0;
 
-int lookup_type[] = {
+static int lookup_type[] = {
 	0,
 	S_IFDIR,
 	S_IFREG,
@@ -397,22 +397,22 @@ static int private_count;
 
 
 /* forward delcarations */
-int read_fs_bytes(int fd, long long byte, int bytes, void *buff);
-int read_block(int fd, long long start, long long *next, void *block);
-int lookup_entry(struct hash_table_entry *hash_table[], long long start);
-void *reader(void *arg);
-void *writer(void *arg);
-void *deflator(void *arg);
+static int read_fs_bytes(int fd, long long byte, int bytes, void *buff);
+static int read_block(int fd, long long start, long long *next, void *block);
+static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
+static void *reader(void *arg);
+static void *writer(void *arg);
+static void *deflator(void *arg);
 
 
-void read_block_list(unsigned int *block_list, char *block_ptr, int blocks)
+static void read_block_list(unsigned int *block_list, char *block_ptr, int blocks)
 {
 	TRACE("read_block_list: blocks %d\n", blocks);
 
 	memcpy(block_list, block_ptr, blocks * sizeof(unsigned int));
 }
 
-int read_fragment_table()
+static int read_fragment_table()
 {
 	int res, i, indexes = SQUASHFS_FRAGMENT_INDEXES(sBlk.fragments);
 	long long fragment_table_index[indexes];
@@ -455,7 +455,7 @@ int read_fragment_table()
 	return TRUE;
 }
 
-void read_fragment(unsigned int fragment, long long *start_block, int *size)
+static void read_fragment(unsigned int fragment, long long *start_block, int *size)
 {
 	TRACE("read_fragment: reading fragment %d\n", fragment);
 
@@ -466,7 +466,7 @@ void read_fragment(unsigned int fragment, long long *start_block, int *size)
 	*size = fragment_entry->size;
 }
 
-struct inode *read_inode(unsigned int start_block, unsigned int offset)
+static struct inode *read_inode(unsigned int start_block, unsigned int offset)
 {
 	static union squashfs_inode_header header;
 	long long start = sBlk.inode_table_start + start_block;
@@ -534,7 +534,7 @@ struct inode *read_inode(unsigned int start_block, unsigned int offset)
 	return &i;
 }
 
-struct dir *squashfs_opendir(unsigned int block_start, unsigned int offset,
+static struct dir *squashfs_opendir(unsigned int block_start, unsigned int offset,
 	struct inode **i)
 {
 	struct squashfs_dir_header dirh;
@@ -611,7 +611,7 @@ struct dir *squashfs_opendir(unsigned int block_start, unsigned int offset,
 	return dir;
 }
 
-int squashfs_uncompress(void *d, void *s, int size, int block_size, int *error)
+static int squashfs_uncompress(void *d, void *s, int size, int block_size, int *error)
 {
 	unsigned long bytes_zlib;
 	lzo_uint bytes_lzo;
@@ -627,7 +627,7 @@ int squashfs_uncompress(void *d, void *s, int size, int block_size, int *error)
 	}
 }
 
-struct cache *cache_init(int buffer_size)
+static struct cache *cache_init(int buffer_size)
 {
 	struct cache *cache = malloc(sizeof(struct cache));
 
@@ -640,7 +640,7 @@ struct cache *cache_init(int buffer_size)
 	return cache;
 }
 
-struct cache_entry *cache_get(struct cache *cache, long long block, int size)
+static struct cache_entry *cache_get(struct cache *cache, long long block, int size)
 {
 	/*
 	 * Get a block out of the cache.  If the block isn't in the cache
@@ -665,7 +665,7 @@ struct cache_entry *cache_get(struct cache *cache, long long block, int size)
 	return reader(entry);
 }
 	
-void add_entry(struct hash_table_entry *hash_table[], long long start,
+static void add_entry(struct hash_table_entry *hash_table[], long long start,
 	int bytes)
 {
 	int hash = CALCULATE_HASH(start);
@@ -695,7 +695,7 @@ int lookup_entry(struct hash_table_entry *hash_table[], long long start)
 	return -1;
 }
 
-int read_fs_bytes(int fd, long long byte, int bytes, void *buff)
+static int read_fs_bytes(int fd, long long byte, int bytes, void *buff)
 {
 	off_t off = byte;
 	int res, count;
@@ -727,7 +727,7 @@ int read_fs_bytes(int fd, long long byte, int bytes, void *buff)
 	return TRUE;
 }
 
-int read_block(int fd, long long start, long long *next, void *block)
+static int read_block(int fd, long long start, long long *next, void *block)
 {
 	unsigned short c_byte;
 	int offset = 2;
@@ -771,7 +771,7 @@ failed:
 	return FALSE;
 }
 
-void uncompress_inode_table(long long start, long long end)
+static void uncompress_inode_table(long long start, long long end)
 {
 	int size = 0, bytes = 0, res;
 
@@ -796,7 +796,7 @@ void uncompress_inode_table(long long start, long long end)
 	}
 }
 
-int write_bytes(int fd, char *buff, int bytes)
+static int write_bytes(int fd, char *buff, int bytes)
 {
 #ifdef TESTING
 	int res, count;
@@ -825,7 +825,8 @@ int write_bytes(int fd, char *buff, int bytes)
 	return 0;
 }
 
-int write_block(int file_fd, char *buffer, int size, long long hole, int sparse)
+static int write_block(int file_fd, char *buffer,
+			int size, long long hole, int sparse)
 {
 	if(hole) {
 		if(sparse == FALSE && zero_data == NULL) {
@@ -857,7 +858,7 @@ failure:
 	return FALSE;
 }
 
-int write_file(struct inode *inode, char *pathname)
+static int write_file(struct inode *inode, char *pathname)
 {
 	unsigned int file_fd, i;
 	unsigned int *block_list;
@@ -940,7 +941,7 @@ int write_file(struct inode *inode, char *pathname)
 	return TRUE;
 }
 
-int create_inode(char *pathname, struct inode *i)
+static int create_inode(char *pathname, struct inode *i)
 {
 	TRACE("create_inode: pathname %s\n", pathname);
 
@@ -968,7 +969,7 @@ int create_inode(char *pathname, struct inode *i)
 	return TRUE;
 }
 
-void uncompress_directory_table(long long start, long long end)
+static void uncompress_directory_table(long long start, long long end)
 {
 	int bytes = 0, size = 0, res;
 
@@ -993,8 +994,8 @@ void uncompress_directory_table(long long start, long long end)
 	}
 }
 
-int squashfs_readdir(struct dir *dir, char **name, unsigned int *start_block,
-unsigned int *offset, unsigned int *type)
+static int squashfs_readdir(struct dir *dir, char **name,
+			unsigned int *start_block, unsigned int *offset, unsigned int *type)
 {
 	if(dir->cur_entry == dir->dir_count)
 		return FALSE;
@@ -1008,13 +1009,13 @@ unsigned int *offset, unsigned int *type)
 	return TRUE;
 }
 
-void squashfs_closedir(struct dir *dir)
+static void squashfs_closedir(struct dir *dir)
 {
 	free(dir->dirs);
 	free(dir);
 }
 
-const char *get_component(const char *target, char *targname)
+static const char *get_component(const char *target, char *targname)
 {
 	while(*target == '/')
 		target ++;
@@ -1027,7 +1028,7 @@ const char *get_component(const char *target, char *targname)
 	return target;
 }
 
-void free_path(struct pathname *paths)
+static void free_path(struct pathname *paths)
 {
 	int i;
 
@@ -1040,7 +1041,7 @@ void free_path(struct pathname *paths)
 	free(paths);
 }
 
-struct pathname *add_path(struct pathname *paths,
+static struct pathname *add_path(struct pathname *paths,
 			const char *target, const char *alltarget)
 {
 	char targname[1024];
@@ -1114,7 +1115,7 @@ struct pathname *add_path(struct pathname *paths,
 	return paths;
 }
 
-struct pathnames *init_subdir()
+static struct pathnames *init_subdir()
 {
 	struct pathnames *new = malloc(sizeof(struct pathnames));
 	if(new == NULL)
@@ -1123,7 +1124,8 @@ struct pathnames *init_subdir()
 	return new;
 }
 
-struct pathnames *add_subdir(struct pathnames *paths, struct pathname *path)
+static struct pathnames *add_subdir(struct pathnames *paths,
+			struct pathname *path)
 {
 	if(paths->count % PATHS_ALLOC_SIZE == 0) {
 		paths = realloc(paths, sizeof(struct pathnames *) +
@@ -1137,12 +1139,12 @@ struct pathnames *add_subdir(struct pathnames *paths, struct pathname *path)
 	return paths;
 }
 
-void free_subdir(struct pathnames *paths)
+static void free_subdir(struct pathnames *paths)
 {
 	free(paths);
 }
 
-int matches(struct pathnames *paths, char *name, struct pathnames **new)
+static int matches(struct pathnames *paths, char *name, struct pathnames **new)
 {
 	int i, n;
 
@@ -1202,8 +1204,8 @@ empty_set:
 	return TRUE;
 }
 
-void pre_scan(char *parent_name, unsigned int start_block, unsigned int offset,
-	struct pathnames *paths)
+static void pre_scan(char *parent_name, unsigned int start_block,
+			unsigned int offset, struct pathnames *paths)
 {
 	unsigned int type;
 	char *name, pathname[1024];
@@ -1239,8 +1241,8 @@ void pre_scan(char *parent_name, unsigned int start_block, unsigned int offset,
 	squashfs_closedir(dir);
 }
 
-void dir_scan(char *parent_name, unsigned int start_block, unsigned int offset,
-	struct pathnames *paths)
+static void dir_scan(char *parent_name, unsigned int start_block,
+			unsigned int offset, struct pathnames *paths)
 {
 	unsigned int type;
 	char *name, pathname[1024];
@@ -1284,7 +1286,7 @@ void dir_scan(char *parent_name, unsigned int start_block, unsigned int offset,
 	dir_count ++;
 }
 
-int read_super(const char *source)
+static int read_super(const char *source)
 {
 	/*
 	 * Try to read a Squashfs 4 superblock
@@ -1301,7 +1303,8 @@ int read_super(const char *source)
 	}
 }
 
-struct pathname *process_extract_files(struct pathname *path, char *filename)
+static struct pathname *process_extract_files(struct pathname *path,
+			char *filename)
 {
 	FILE *fd;
 	char name[16384];
@@ -1322,7 +1325,7 @@ struct pathname *process_extract_files(struct pathname *path, char *filename)
  * reader thread.  This thread processes read requests queued by the
  * cache_get() routine.
  */
-void *reader(void *arg)
+static void *reader(void *arg)
 {
 	struct cache_entry *entry = (struct cache_entry *)arg;
 
@@ -1344,7 +1347,7 @@ void *reader(void *arg)
  * writer thread.  This processes file write requests queued by the
  * write_file() routine.
  */
-void *writer(void *arg)
+static void *writer(void *arg)
 {
 	static struct squashfs_file *file = NULL;
 	static long long hole = 0;
@@ -1381,7 +1384,7 @@ void *writer(void *arg)
 /*
  * decompress thread.  This decompresses buffers queued by the read thread
  */
-void *deflator(void *arg)
+static void *deflator(void *arg)
 {
 	struct cache_entry *entry = (struct cache_entry *)arg;
 	char tmp[block_size];
