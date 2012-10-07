@@ -9,8 +9,6 @@
 #define METADATA_FN "METADATA.desktop"
 #define HEADER "[Desktop Entry]"
 
-char *unsquashfs_single_file(const char *image_name, const char *file_name);
-
 struct Entry {
 	SLIST_ENTRY(Entry) next;
 	char *name;

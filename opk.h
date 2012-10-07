@@ -13,6 +13,8 @@ void closeMetadata(struct ParserData *pdata);
 
 char *readParam(struct ParserData *pdata, const char *name);
 
+char *unsquashfs_single_file(const char *image_name, const char *file_name);
+
 #ifdef __cplusplus
 }
 #endif
