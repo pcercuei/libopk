@@ -1421,7 +1421,7 @@ static void *deflator(struct PkgData *pdata, struct cache_entry *entry)
 #ifdef TESTING
 int main(int argc, char *argv[])
 #else
-char *unsquashfs_single_file(const char *image_name, const char *file_name)
+char *opk_extract_file(const char *image_name, const char *file_name)
 #endif
 {
 	struct PkgData *pdata;

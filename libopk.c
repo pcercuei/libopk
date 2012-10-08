@@ -20,13 +20,13 @@ struct ParserData {
 	char *buf;
 };
 
-struct ParserData *openMetadata(const char *opk_filename)
+struct ParserData *opk_open(const char *opk_filename)
 {
 	struct ParserData *pdata;
 	char *buf;
 
 	/* Extract the meta-data from the OD package */
-	buf = unsquashfs_single_file(opk_filename, METADATA_FN);
+	buf = opk_extract_file(opk_filename, METADATA_FN);
 	if (!buf)
 		return NULL;
 
@@ -57,7 +57,7 @@ struct ParserData *openMetadata(const char *opk_filename)
 		if (!buf[0]) {
 			fprintf(stderr, "Error reading metadata\n");
 			free(e);
-			closeMetadata(pdata);
+			opk_close(pdata);
 			return NULL;
 		}
 
@@ -78,7 +78,7 @@ struct ParserData *openMetadata(const char *opk_filename)
 	return pdata;
 }
 
-void closeMetadata(struct ParserData *pdata)
+void opk_close(struct ParserData *pdata)
 {
 	while (!SLIST_EMPTY(&pdata->head)) {
 		struct Entry *entry = SLIST_FIRST(&pdata->head);
@@ -90,7 +90,7 @@ void closeMetadata(struct ParserData *pdata)
 	free(pdata);
 }
 
-char *readParam(struct ParserData *pdata, const char *name)
+char *opk_read_param(struct ParserData *pdata, const char *name)
 {
 	struct Entry *entry;
 

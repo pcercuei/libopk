@@ -8,12 +8,12 @@ extern "C" {
 
 struct ParserData;
 
-struct ParserData *openMetadata(const char *opk_filename);
-void closeMetadata(struct ParserData *pdata);
+struct ParserData *opk_open(const char *opk_filename);
+void opk_close(struct ParserData *pdata);
 
-char *readParam(struct ParserData *pdata, const char *name);
+char *opk_read_param(struct ParserData *pdata, const char *name);
 
-char *unsquashfs_single_file(const char *image_name, const char *file_name);
+char *opk_extract_file(const char *image_name, const char *file_name);
 
 #ifdef __cplusplus
 }
