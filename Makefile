@@ -19,9 +19,11 @@ all: $(LIBOPK)
 $(LIBOPK): $(OBJS)
 	$(CC) -shared -Wl,-soname,$(SONAME) -o $@ $^ $(LDFLAGS)
 
-install: $(LIBOPK)
+install-lib: $(LIBOPK)
 	$(INSTALL) -m 0644 $(LIBOPK) $(DESTDIR)/lib
 	-ln -s $(DESTDIR)/lib/$(LIBOPK) $(DESTDIR)/lib/$(SONAME)
+
+install: install-lib
 	$(INSTALL) -m 0644 opk.h $(DESTDIR)/include
 
 clean:
