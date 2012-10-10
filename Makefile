@@ -1,10 +1,12 @@
 
-DESTDIR ?= /usr/local
+PREFIX ?= /usr/local
 
-VERSION = 0.1
+VERSION_MAJOR = 0
+VERSION_MINOR = 1
 
-SONAME = libopk.so
-LIBOPK = $(SONAME).$(VERSION)
+LIBNAME = libopk.so
+SONAME = $(LIBNAME).$(VERSION_MAJOR)
+LIBOPK = $(SONAME).$(VERSION_MINOR)
 
 CC = $(CROSS_COMPILE)gcc
 INSTALL ?= install
@@ -14,17 +16,20 @@ LDFLAGS += -llzo2 -lz
 
 OBJS = libopk.o unsqfs.o
 
+.PHONY: all clean install install-lib
+
 all: $(LIBOPK)
 
 $(LIBOPK): $(OBJS)
 	$(CC) -shared -Wl,-soname,$(SONAME) -o $@ $^ $(LDFLAGS)
 
 install-lib: $(LIBOPK)
-	$(INSTALL) -m 0644 $(LIBOPK) $(DESTDIR)/lib
-	-ln -s $(DESTDIR)/lib/$(LIBOPK) $(DESTDIR)/lib/$(SONAME)
+	$(INSTALL) -D $(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(LIBOPK)
+	ln -sf $(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(SONAME)
 
 install: install-lib
-	$(INSTALL) -m 0644 opk.h $(DESTDIR)/include
+	$(INSTALL) -D -m 0644 opk.h $(DESTDIR)$(PREFIX)/include/opk.h
+	ln -sf $(SONAME) $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
 
 clean:
-	-rm -f $(OBJS) $(LIBOPK)
+	rm -f $(OBJS) $(LIBOPK)
