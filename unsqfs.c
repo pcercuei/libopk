@@ -1280,6 +1280,37 @@ static int read_super(struct PkgData *pdata, const char *source)
 	}
 }
 
+static struct inode *get_inode_from_dir(struct PkgData *pdata,
+			const char *name, unsigned int start_block, unsigned int offset)
+{
+	char *n;
+	struct inode *i;
+	unsigned int type;
+	struct dir *dir = squashfs_opendir(pdata, start_block, offset, &i);
+	i = NULL;
+
+	while(squashfs_readdir(dir, &n, &start_block, &offset, &type)) {
+		if(type == SQUASHFS_DIR_TYPE)
+			i = get_inode_from_dir(pdata, name, start_block, offset);
+
+		else if (!strcmp(n, name))
+			i = read_inode(pdata, start_block, offset);
+
+		if (i)
+			break;
+	}
+
+	squashfs_closedir(dir);
+	return i;
+}
+
+static struct inode *get_inode(struct PkgData *pdata, const char *name)
+{
+	return get_inode_from_dir(pdata, name,
+				SQUASHFS_INODE_BLK(pdata->sBlk.root_inode),
+				SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode));
+}
+
 static struct pathname *process_extract_files(struct pathname *path,
 			char *filename)
 {
@@ -1379,9 +1410,8 @@ static void *deflator(struct PkgData *pdata, struct cache_entry *entry)
 char *opk_extract_file(const char *image_name, const char *file_name)
 {
 	struct PkgData *pdata;
-	char *dest = "squashfs-root";
-	struct pathnames *paths = NULL;
-	struct pathname *path = NULL;
+	struct inode *i;
+	char *buf;
 
 	pdata = calloc(1, sizeof(*pdata));
 	if (!pdata)
@@ -1398,8 +1428,6 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	pdata->private_buffer = calloc(1, 4096);
 	if(pdata->private_buffer == NULL)
 		EXIT_UNSQUASH("Unable to allocate private buffer");
-
-	path = add_path(path, file_name, file_name);
 
 	if ((pdata->sBlk.compression != ZLIB_COMPRESSION)
 				&& (pdata->sBlk.compression != LZO_COMPRESSION))
@@ -1420,22 +1448,13 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	uncompress_inode_table(pdata);
 	uncompress_directory_table(pdata);
 
-	if(path) {
-		paths = init_subdir();
-		paths = add_subdir(paths, path);
-	}
+	i = get_inode(pdata, file_name);
+	if (!i)
+		EXIT_UNSQUASH("Unable to find inode\n");
 
-	pre_scan(pdata, dest, SQUASHFS_INODE_BLK(pdata->sBlk.root_inode),
-		SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode), paths);
+	write_file(pdata, i, "");
 
-	memset(pdata->created_inode, 0, pdata->sBlk.inodes * sizeof(char *));
-
-	dir_scan(pdata, dest, SQUASHFS_INODE_BLK(pdata->sBlk.root_inode),
-		SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode), paths);
-
-	{
-		char *buf = pdata->private_buffer;
-		free(pdata);
-		return buf;
-	}
+	buf = pdata->private_buffer;
+	free(pdata);
+	return buf;
 }
