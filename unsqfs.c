@@ -31,11 +31,6 @@
  * regular expressions. You have been warned.
  *    -Steve
  *
- * To build as a stand-alone test application:
- *
- *    gcc -O2 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE \
- *       -DTESTING -Wall unsqfs.c -lz -llzo2 -o unsqfs-test
- *
  * To build as a part of a library or application compile this file
  * and link with the following CFLAGS and LDFLAGS:
  *
@@ -374,11 +369,9 @@ struct PkgData {
 		 **created_inode, *zero_data;
 	unsigned int block_log, cur_blocks;
 
-#ifndef TESTING
 	/* buffer to return to caller*/
 	char *private_buffer;
 	int private_count;
-#endif
 };
 
 static const int lookup_type[] = {
@@ -811,21 +804,6 @@ static void uncompress_inode_table(struct PkgData *pdata)
 
 static int write_bytes(struct PkgData *pdata, int fd, char *buff, int bytes)
 {
-#ifdef TESTING
-	int res, count;
-
-	for(count = 0; count < bytes; count += res) {
-		res = write(fd, buff + count, bytes - count);
-		if(res == -1) {
-			if(errno != EINTR) {
-				ERROR("Write on output file failed because "
-					"%s\n", strerror(errno));
-				return -1;
-			}
-			res = 0;
-		}
-	}
-#else
 	if (pdata->private_count < 4096) {
 		if (bytes > 4096)
 			pdata->private_count = 4096;
@@ -833,7 +811,6 @@ static int write_bytes(struct PkgData *pdata, int fd, char *buff, int bytes)
 			pdata->private_count += bytes;
 		memcpy(pdata->private_buffer, buff, pdata->private_count);
 	}
-#endif
 
 	return 0;
 }
@@ -884,17 +861,7 @@ static int write_file(struct PkgData *pdata,
 
 	TRACE("write_file: regular file, blocks %d\n", inode->blocks);
 
-#ifdef TESTING
-	file_fd = open(pathname, O_CREAT | O_WRONLY,
-		(mode_t) inode->mode & 0777);
-	if(file_fd == -1) {
-		ERROR("write_file: failed to create file %s, because %s\n",
-			pathname, strerror(errno));
-		return FALSE;
-	}
-#else
 	file_fd = 0;
-#endif
 
 	block_list = malloc(inode->blocks * sizeof(unsigned int));
 	if(block_list == NULL)
@@ -1269,15 +1236,6 @@ static void dir_scan(struct PkgData *pdata,
 	struct inode *i;
 	struct dir *dir = squashfs_opendir(pdata, start_block, offset, &i);
 
-#ifdef TESTING
-	if(mkdir(parent_name, (mode_t) dir->mode) == -1 && errno != EEXIST) {
-		ERROR("dir_scan: failed to make directory %s, because %s\n",
-			parent_name, strerror(errno));
-		squashfs_closedir(dir);
-		return;
-	}
-#endif
-
 	while(squashfs_readdir(dir, &name, &start_block, &offset, &type)) {
 		TRACE("dir_scan: name %s, start_block %d, offset %d, type %d\n",
 			name, start_block, offset, type);
@@ -1418,11 +1376,7 @@ static void *deflator(struct PkgData *pdata, struct cache_entry *entry)
 		return entry;
 }
 
-#ifdef TESTING
-int main(int argc, char *argv[])
-#else
 char *opk_extract_file(const char *image_name, const char *file_name)
-#endif
 {
 	struct PkgData *pdata;
 	char *dest = "squashfs-root";
@@ -1434,20 +1388,6 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 		EXIT_UNSQUASH("Unable to create data structure: %s\n",
 					strerror(errno));
 
-#ifdef TESTING
-	if(argc < 3)
-		EXIT_UNSQUASH("SYNTAX: %s [options] filesystem "
-			"[file to extract]\n", argv[0]);
-
-	path = add_path(path, argv[2], argv[2]);
-
-	if((pdata->fd = open(argv[1], O_RDONLY)) == -1)
-		EXIT_UNSQUASH("Could not open %s, because %s\n", argv[1],
-			strerror(errno));
-
-	if(read_super(pdata, argv[1]) == FALSE)
-		EXIT_UNSQUASH("Could not read superblock\n");
-#else
 	if((pdata->fd = open(image_name, O_RDONLY)) == -1)
 		EXIT_UNSQUASH("Could not open %s, because %s\n", image_name,
 			strerror(errno));
@@ -1460,7 +1400,6 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 		EXIT_UNSQUASH("Unable to allocate private buffer");
 
 	path = add_path(path, file_name, file_name);
-#endif
 
 	if ((pdata->sBlk.compression != ZLIB_COMPRESSION)
 				&& (pdata->sBlk.compression != LZO_COMPRESSION))
@@ -1494,17 +1433,9 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	dir_scan(pdata, dest, SQUASHFS_INODE_BLK(pdata->sBlk.root_inode),
 		SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode), paths);
 
-#ifdef TESTING
-	printf("\n");
-	printf("created %d files\n", pdata->file_count);
-	printf("created %d directories\n", pdata->dir_count);
-
-	return 0;
-#else
 	{
 		char *buf = pdata->private_buffer;
 		free(pdata);
 		return buf;
 	}
-#endif
 }
