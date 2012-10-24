@@ -372,6 +372,7 @@ struct PkgData {
 	/* buffer to return to caller*/
 	char *private_buffer;
 	int private_count;
+	off_t offset;
 };
 
 static const int lookup_type[] = {
@@ -804,14 +805,8 @@ static void uncompress_inode_table(struct PkgData *pdata)
 
 static int write_bytes(struct PkgData *pdata, int fd, char *buff, int bytes)
 {
-	if (pdata->private_count < 4096) {
-		if (bytes > 4096)
-			pdata->private_count = 4096;
-		else
-			pdata->private_count += bytes;
-		memcpy(pdata->private_buffer, buff, pdata->private_count);
-	}
-
+	memcpy(pdata->private_buffer + pdata->offset, buff, bytes);
+	pdata->offset += bytes;
 	return 0;
 }
 
@@ -1116,10 +1111,6 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	if(read_super(pdata, image_name) == FALSE)
 		EXIT_UNSQUASH("Could not read superblock\n");
 
-	pdata->private_buffer = calloc(1, 4096);
-	if(pdata->private_buffer == NULL)
-		EXIT_UNSQUASH("Unable to allocate private buffer");
-
 	if ((pdata->sBlk.compression != ZLIB_COMPRESSION)
 				&& (pdata->sBlk.compression != LZO_COMPRESSION))
 		EXIT_UNSQUASH("No decompressors available:\n");
@@ -1142,6 +1133,10 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	i = get_inode(pdata, file_name);
 	if (!i)
 		EXIT_UNSQUASH("Unable to find inode\n");
+
+	pdata->private_buffer = calloc(1, i->data);
+	if(pdata->private_buffer == NULL)
+		EXIT_UNSQUASH("Unable to allocate private buffer");
 
 	write_file(pdata, i, "");
 
