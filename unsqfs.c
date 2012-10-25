@@ -364,13 +364,12 @@ struct PkgData {
 	struct hash_table_entry *inode_table_hash[65536],
 							*directory_table_hash[65536];
 
-	int fd, bytes, file_count, dir_count;
+	int fd;
 	char *inode_table, *directory_table;
-	unsigned int block_log, cur_blocks;
+	unsigned int cur_blocks;
 
 	/* buffer to return to caller*/
 	char *private_buffer;
-	int private_count;
 	off_t offset;
 };
 
@@ -1103,8 +1102,6 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	if ((pdata->sBlk.compression != ZLIB_COMPRESSION)
 				&& (pdata->sBlk.compression != LZO_COMPRESSION))
 		EXIT_UNSQUASH("No decompressors available:\n");
-
-	pdata->block_log = pdata->sBlk.block_log;
 
 	pdata->fragment_cache = cache_init(pdata->sBlk.block_size);
 	pdata->data_cache = cache_init(pdata->sBlk.block_size);
