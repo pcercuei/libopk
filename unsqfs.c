@@ -365,8 +365,7 @@ struct PkgData {
 							*directory_table_hash[65536];
 
 	int fd, bytes, file_count, dir_count;
-	char *inode_table, *directory_table,
-		 *zero_data;
+	char *inode_table, *directory_table;
 	unsigned int block_log, cur_blocks;
 
 	/* buffer to return to caller*/
@@ -815,34 +814,24 @@ static int write_block(struct PkgData *pdata, int file_fd,
 {
 	unsigned int block_size = pdata->sBlk.block_size;
 
-	if(hole) {
-		if(sparse == FALSE && pdata->zero_data == NULL) {
-			if((pdata->zero_data = malloc(block_size)) == NULL)
-				EXIT_UNSQUASH("write_block: failed to alloc "
-					"zero data block\n");
-			memset(pdata->zero_data, 0, block_size);
-		}
+	if(hole && sparse == FALSE) {
+		int avail_bytes, i;
+		int blocks = (hole + block_size -1) / block_size;
+		char *zero_data = alloca(block_size);
 
-		if(sparse == FALSE) {
-			int blocks = (hole + block_size -1) / block_size;
-			int avail_bytes, i;
-			for(i = 0; i < blocks; i++, hole -= avail_bytes) {
-				avail_bytes = hole > block_size ? block_size :
-					hole;
-				if(write_bytes(pdata, file_fd, pdata->zero_data, avail_bytes)
-						== -1)
-					goto failure;
-			}
+		memset(zero_data, 0, block_size);
+
+		for(i = 0; i < blocks; i++, hole -= avail_bytes) {
+			avail_bytes = hole > block_size ? block_size : hole;
+			if(write_bytes(pdata, file_fd, zero_data, avail_bytes) == -1)
+				return FALSE;
 		}
 	}
 
 	if(write_bytes(pdata, file_fd, buffer, size) == -1)
-		goto failure;
+		return FALSE;
 
 	return TRUE;
-
-failure:
-	return FALSE;
 }
 
 static int write_file(struct PkgData *pdata,
