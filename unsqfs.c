@@ -366,7 +366,7 @@ struct PkgData {
 
 	int fd, bytes, file_count, dir_count;
 	char *inode_table, *directory_table,
-		 **created_inode, *zero_data;
+		 *zero_data;
 	unsigned int block_log, cur_blocks;
 
 	/* buffer to return to caller*/
@@ -1119,10 +1119,6 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 
 	pdata->fragment_cache = cache_init(pdata->sBlk.block_size);
 	pdata->data_cache = cache_init(pdata->sBlk.block_size);
-
-	pdata->created_inode = calloc(pdata->sBlk.inodes, sizeof(char *));
-	if(pdata->created_inode == NULL)
-		EXIT_UNSQUASH("failed to allocate created_inode\n");
 
 	if(read_fragment_table(pdata) == FALSE)
 		EXIT_UNSQUASH("failed to read fragment table\n");
