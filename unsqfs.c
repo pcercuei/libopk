@@ -1119,7 +1119,7 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	if (!i)
 		EXIT_UNSQUASH("Unable to find inode\n");
 
-	pdata->private_buffer = calloc(1, i->data);
+	pdata->private_buffer = calloc(1, i->data + 1);
 	if(pdata->private_buffer == NULL)
 		EXIT_UNSQUASH("Unable to allocate private buffer");
 
