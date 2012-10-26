@@ -1122,6 +1122,12 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 
 	write_file(pdata, i, "");
 
+	free(pdata->directory_table);
+	free(pdata->fragment_table);
+	free(pdata->inode_table);
+	free(pdata->data_cache);
+	free(pdata->fragment_cache);
+
 	buf = pdata->private_buffer;
 	free(pdata);
 	return buf;
