@@ -1048,6 +1048,9 @@ static void *writer(struct PkgData *pdata, void *arg)
 		write_block(pdata, file->fd, block->buffer->data +
 			block->offset, block->size, hole, file->sparse);
 	}
+
+	free(block->buffer->data);
+	free(block->buffer);
 	free(block);
 
 	if (++pdata->cur_blocks == file->blocks) {
