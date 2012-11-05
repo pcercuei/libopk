@@ -37,6 +37,7 @@ struct ParserData *opk_open(const char *opk_filename)
 	}
 
 	pdata->buf = NULL;
+	SLIST_INIT(&pdata->head);
 
 	return pdata;
 }
@@ -81,7 +82,6 @@ const char *opk_open_metadata(struct ParserData *pdata)
 	}
 
 	pdata->buf = buf;
-	SLIST_INIT(&pdata->head);
 
 	buf += sizeof(HEADER);
 
