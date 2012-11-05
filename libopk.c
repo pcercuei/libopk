@@ -5,6 +5,7 @@
 #include <sys/queue.h>
 
 #include "opk.h"
+#include "unsqfs.h"
 
 #define METADATA_FN "METADATA.desktop"
 #define HEADER "[Desktop Entry]"
@@ -17,6 +18,7 @@ struct Entry {
 
 struct ParserData {
 	SLIST_HEAD(Entries, Entry) head;
+	struct PkgData *pdata;
 	char *buf;
 };
 
@@ -25,19 +27,25 @@ struct ParserData *opk_open(const char *opk_filename)
 	struct ParserData *pdata;
 	char *buf;
 
-	/* Extract the meta-data from the OD package */
-	buf = opk_extract_file(opk_filename, METADATA_FN);
-	if (!buf)
+	pdata = malloc(sizeof(*pdata));
+	if (!pdata)
 		return NULL;
+
+	pdata->pdata = opk_sqfs_open(opk_filename);
+	if (!pdata->pdata)
+		goto err_free_parserdata;
+
+	/* Extract the meta-data from the OD package */
+	buf = opk_extract_file(pdata, METADATA_FN);
+	if (!buf)
+		goto err_free_pkgdata;
 
 	/* Check for standard .desktop header */
 	if (strncmp(buf, HEADER, sizeof(HEADER) - 1)) {
 		fprintf(stderr, "Unrecognized metadata\n");
-		free(buf);
-		return NULL;
+		goto err_free_buf;
 	}
 
-	pdata = malloc(sizeof(*pdata));
 	pdata->buf = buf;
 	SLIST_INIT(&pdata->head);
 
@@ -76,10 +84,20 @@ struct ParserData *opk_open(const char *opk_filename)
 	}
 
 	return pdata;
+
+err_free_buf:
+	free(buf);
+err_free_pkgdata:
+	free(pdata->pdata);
+err_free_parserdata:
+	free(pdata);
+	return NULL;
 }
 
 void opk_close(struct ParserData *pdata)
 {
+	opk_sqfs_close(pdata->pdata);
+
 	while (!SLIST_EMPTY(&pdata->head)) {
 		struct Entry *entry = SLIST_FIRST(&pdata->head);
 		SLIST_REMOVE_HEAD(&pdata->head, next);
@@ -102,4 +120,9 @@ char *opk_read_param(struct ParserData *pdata, const char *name)
 	}
 
 	return NULL;
+}
+
+char *opk_extract_file(struct ParserData *pdata, const char *name)
+{
+	return opk_sqfs_extract_file(pdata->pdata, name);
 }

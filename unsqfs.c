@@ -57,6 +57,8 @@
 #include <lzo/lzoconf.h>
 #include <lzo/lzo1x.h>
 
+#include "unsqfs.h"
+
 #define SQUASHFS_CACHED_FRAGMENTS	CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE	
 #define SQUASHFS_MAGIC			0x73717368
 #define SQUASHFS_START			0
@@ -1022,11 +1024,9 @@ static struct cache_entry *deflator(struct PkgData *pdata,
 		return entry;
 }
 
-char *opk_extract_file(const char *image_name, const char *file_name)
+struct PkgData *opk_sqfs_open(const char *image_name)
 {
 	struct PkgData *pdata;
-	struct inode *i;
-	char *buf;
 
 	pdata = calloc(1, sizeof(*pdata));
 	if (!pdata)
@@ -1053,7 +1053,25 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	uncompress_inode_table(pdata);
 	uncompress_directory_table(pdata);
 
-	i = get_inode(pdata, file_name);
+	return pdata;
+}
+
+void opk_sqfs_close(struct PkgData *pdata)
+{
+	free(pdata->inode_table);
+	free(pdata->directory_table);
+	free(pdata->fragment_table);
+	free(pdata->fragment_cache);
+	free(pdata->data_cache);
+	free(pdata);
+}
+
+char *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
+{
+	struct inode *i;
+	char *buf;
+
+	i = get_inode(pdata, name);
 	if (!i)
 		EXIT_UNSQUASH("Unable to find inode\n");
 
@@ -1062,13 +1080,5 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 		EXIT_UNSQUASH("Unable to allocate private buffer");
 
 	write_buf(pdata, i, buf);
-
-	free(pdata->directory_table);
-	free(pdata->fragment_table);
-	free(pdata->inode_table);
-	free(pdata->data_cache);
-	free(pdata->fragment_cache);
-
-	free(pdata);
 	return buf;
 }

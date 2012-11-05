@@ -13,7 +13,7 @@ void opk_close(struct ParserData *pdata);
 
 char *opk_read_param(struct ParserData *pdata, const char *name);
 
-char *opk_extract_file(const char *image_name, const char *file_name);
+char *opk_extract_file(struct ParserData *pdata, const char *name);
 
 #ifdef __cplusplus
 }
