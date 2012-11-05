@@ -367,10 +367,6 @@ struct PkgData {
 	int fd;
 	char *inode_table, *directory_table;
 	unsigned int cur_blocks;
-
-	/* buffer to return to caller*/
-	char *private_buffer;
-	off_t offset;
 };
 
 static const int lookup_type[] = {
@@ -397,9 +393,12 @@ static int read_fs_bytes(int fd, long long byte, int bytes, void *buff);
 static int read_block(struct PkgData *pdata,
 			long long start, long long *next, void *block);
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
-static void *reader(struct PkgData *pdata, struct cache_entry *entry);
-static void *writer(struct PkgData *pdata, void *arg);
-static void *deflator(struct PkgData *pdata, struct cache_entry *entry);
+static struct cache_entry *reader(struct PkgData *pdata,
+			struct cache_entry *entry);
+static void writer(struct PkgData *pdata,
+			struct file_entry *block, char *buf);
+static struct cache_entry *deflator(struct PkgData *pdata,
+			struct cache_entry *entry);
 
 
 static void read_block_list(unsigned int *block_list, char *block_ptr, int blocks)
@@ -801,81 +800,48 @@ static void uncompress_inode_table(struct PkgData *pdata)
 	}
 }
 
-static int write_bytes(struct PkgData *pdata, int fd, char *buff, int bytes)
-{
-	memcpy(pdata->private_buffer + pdata->offset, buff, bytes);
-	pdata->offset += bytes;
-	return 0;
-}
-
-static int write_block(struct PkgData *pdata, int file_fd,
-			char *buffer, int size, long long hole, int sparse)
+static void write_block(struct PkgData *pdata, char *buf_in,
+			int size, long long hole, int sparse, char *buf_out)
 {
 	unsigned int block_size = pdata->sBlk.block_size;
 
 	if(hole && sparse == FALSE) {
 		int avail_bytes, i;
 		int blocks = (hole + block_size -1) / block_size;
-		char *zero_data = alloca(block_size);
-
-		memset(zero_data, 0, block_size);
 
 		for(i = 0; i < blocks; i++, hole -= avail_bytes) {
 			avail_bytes = hole > block_size ? block_size : hole;
-			if(write_bytes(pdata, file_fd, zero_data, avail_bytes) == -1)
-				return FALSE;
+			memset(buf_out, 0, avail_bytes);
+			buf_out += avail_bytes;
 		}
 	}
 
-	if(write_bytes(pdata, file_fd, buffer, size) == -1)
-		return FALSE;
-
-	return TRUE;
+	memcpy(buf_out, buf_in, size);
 }
 
-static int write_file(struct PkgData *pdata,
-			struct inode *inode, char *pathname)
+static void write_buf(struct PkgData *pdata,
+			struct inode *inode, char *buf)
 {
-	unsigned int file_fd, i;
+	unsigned int i;
 	unsigned int *block_list;
 	int file_end = inode->data / pdata->sBlk.block_size;
 	long long start = inode->start;
-	struct squashfs_file *file;
 
-	TRACE("write_file: regular file, blocks %d\n", inode->blocks);
-
-	file_fd = 0;
+	TRACE("write_buf: regular file, blocks %d\n", inode->blocks);
+	pdata->cur_blocks = inode->blocks + (inode->frag_bytes > 0);
 
 	block_list = malloc(inode->blocks * sizeof(unsigned int));
 	if(block_list == NULL)
-		EXIT_UNSQUASH("write_file: unable to malloc block list\n");
+		EXIT_UNSQUASH("write_buf: unable to malloc block list\n");
 
 	read_block_list(block_list, inode->block_ptr, inode->blocks);
-
-	file = malloc(sizeof(struct squashfs_file));
-	if(file == NULL)
-		EXIT_UNSQUASH("write_file: unable to malloc file\n");
-
-	/*
-	 * the writer thread is queued a squashfs_file structure describing the
- 	 * file.  If the file has one or more blocks or a fragments they are
- 	 * queued separately (references to blocks in the cache).
- 	 */
-	file->fd = file_fd;
-	file->file_size = inode->data;
-	file->mode = inode->mode;
-	file->time = inode->time;
-	file->pathname = strdup(pathname);
-	file->blocks = inode->blocks + (inode->frag_bytes > 0);
-	file->sparse = inode->sparse;
-	writer(pdata, file);
 
 	for(i = 0; i < inode->blocks; i++) {
 		int c_byte = SQUASHFS_COMPRESSED_SIZE_BLOCK(block_list[i]);
 		struct file_entry *block = malloc(sizeof(struct file_entry));
 
 		if(block == NULL)
-			EXIT_UNSQUASH("write_file: unable to malloc file\n");
+			EXIT_UNSQUASH("write_buf: unable to malloc file\n");
 		block->offset = 0;
 		block->size = i == file_end ?
 		  inode->data & (pdata->sBlk.block_size - 1) : pdata->sBlk.block_size;
@@ -886,7 +852,9 @@ static int write_file(struct PkgData *pdata,
 						start, block_list[i]);
 			start += c_byte;
 		}
-		writer(pdata, block);
+
+		writer(pdata, block, buf);
+		buf += block->size;
 	}
 
 	if(inode->frag_bytes) {
@@ -895,16 +863,15 @@ static int write_file(struct PkgData *pdata,
 		struct file_entry *block = malloc(sizeof(struct file_entry));
 
 		if(block == NULL)
-			EXIT_UNSQUASH("write_file: unable to malloc file\n");
+			EXIT_UNSQUASH("write_buf: unable to malloc file\n");
 		read_fragment(pdata, inode->fragment, &start, &size);
 		block->buffer = cache_get(pdata, pdata->fragment_cache, start, size);
 		block->offset = inode->offset;
 		block->size = inode->frag_bytes;
-		writer(pdata, block);
+		writer(pdata, block, buf);
 	}
 
 	free(block_list);
-	return TRUE;
 }
 
 static void uncompress_directory_table(struct PkgData *pdata)
@@ -1003,71 +970,42 @@ static struct inode *get_inode(struct PkgData *pdata, const char *name)
 				SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode));
 }
 
-/*
- * reader thread.  This thread processes read requests queued by the
- * cache_get() routine.
- */
-static void *reader(struct PkgData *pdata, struct cache_entry *entry)
+static struct cache_entry *reader(struct PkgData *pdata,
+			struct cache_entry *entry)
 {
 	int res = read_fs_bytes(pdata->fd, entry->block,
 		SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
 		entry->data);
 
 	if(res && SQUASHFS_COMPRESSED_BLOCK(entry->size))
-		/*
-		 * queue successfully read block to the deflate
-		 * thread(s) for further processing
- 		 */
 		deflator(pdata, entry);
 
 	return entry;
 }
 
-/*
- * writer thread.  This processes file write requests queued by the
- * write_file() routine.
- */
-static void *writer(struct PkgData *pdata, void *arg)
+static void writer(struct PkgData *pdata,
+			struct file_entry *block, char *buf)
 {
-	struct squashfs_file *file = pdata->file;
 	long long hole = pdata->hole;
-	struct file_entry *block;
+	unsigned int sparse_file = !block->buffer;
 
-	if (file == NULL) {
-		pdata->file = (struct squashfs_file *)arg;
-		return pdata->file;
-	}
-
-	TRACE("writer: regular file, blocks %d\n", file->blocks);
-
-	block = (struct file_entry *)arg;
-
-	if(block->buffer == 0) { /* sparse file */
+	if(sparse_file) {
 		hole += block->size;
 	} else {
-		write_block(pdata, file->fd, block->buffer->data +
-			block->offset, block->size, hole, file->sparse);
+		write_block(pdata, block->buffer->data + block->offset,
+					block->size, hole, sparse_file, buf);
 	}
 
 	free(block->buffer->data);
 	free(block->buffer);
 	free(block);
 
-	if (++pdata->cur_blocks == file->blocks) {
-		close(file->fd);
-		free(file->pathname);
-		pdata->cur_blocks = 0;
+	if (!--pdata->cur_blocks)
 		hole = 0;
-		free(file);
-		file = NULL;
-	}
-	return NULL;
 }
 
-/*
- * decompress thread.  This decompresses buffers queued by the read thread
- */
-static void *deflator(struct PkgData *pdata, struct cache_entry *entry)
+static struct cache_entry *deflator(struct PkgData *pdata,
+			struct cache_entry *entry)
 {
 	char tmp[pdata->sBlk.block_size];
 	int error, res;
@@ -1119,11 +1057,11 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	if (!i)
 		EXIT_UNSQUASH("Unable to find inode\n");
 
-	pdata->private_buffer = calloc(1, i->data + 1);
-	if(pdata->private_buffer == NULL)
+	buf = calloc(1, i->data + 1);
+	if(!buf)
 		EXIT_UNSQUASH("Unable to allocate private buffer");
 
-	write_file(pdata, i, "");
+	write_buf(pdata, i, buf);
 
 	free(pdata->directory_table);
 	free(pdata->fragment_table);
@@ -1131,7 +1069,6 @@ char *opk_extract_file(const char *image_name, const char *file_name)
 	free(pdata->data_cache);
 	free(pdata->fragment_cache);
 
-	buf = pdata->private_buffer;
 	free(pdata);
 	return buf;
 }
