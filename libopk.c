@@ -7,7 +7,6 @@
 #include "opk.h"
 #include "unsqfs.h"
 
-#define METADATA_FN "METADATA.desktop"
 #define HEADER "[Desktop Entry]"
 
 struct Entry {
@@ -32,18 +31,53 @@ struct ParserData *opk_open(const char *opk_filename)
 		return NULL;
 
 	pdata->pdata = opk_sqfs_open(opk_filename);
-	if (!pdata->pdata)
-		goto err_free_parserdata;
+	if (!pdata->pdata) {
+		free(pdata);
+		return NULL;
+	}
+
+	pdata->buf = NULL;
+
+	return pdata;
+}
+
+static void list_free(struct ParserData *pdata)
+{
+	while (!SLIST_EMPTY(&pdata->head)) {
+		struct Entry *entry = SLIST_FIRST(&pdata->head);
+		SLIST_REMOVE_HEAD(&pdata->head, next);
+		free(entry);
+	}
+
+	SLIST_INIT(&pdata->head);
+}
+
+const char *opk_open_metadata(struct ParserData *pdata)
+{
+	char *buf;
+	const char *name;
+
+	/* Free previous meta-data information */
+	list_free(pdata);
+	if (pdata->buf)
+		free(pdata->buf);
+	pdata->buf = NULL;
+
+	/* Get the name of the next .desktop */
+	name = opk_sqfs_get_metadata(pdata->pdata);
+	if (!name)
+		return NULL;
 
 	/* Extract the meta-data from the OD package */
-	buf = opk_extract_file(pdata, METADATA_FN);
+	buf = opk_extract_file(pdata, name);
 	if (!buf)
-		goto err_free_pkgdata;
+		return NULL;
 
 	/* Check for standard .desktop header */
 	if (strncmp(buf, HEADER, sizeof(HEADER) - 1)) {
 		fprintf(stderr, "Unrecognized metadata\n");
-		goto err_free_buf;
+		free(buf);
+		return NULL;
 	}
 
 	pdata->buf = buf;
@@ -65,7 +99,7 @@ struct ParserData *opk_open(const char *opk_filename)
 		if (!buf[0]) {
 			fprintf(stderr, "Error reading metadata\n");
 			free(e);
-			opk_close(pdata);
+			list_free(pdata);
 			return NULL;
 		}
 
@@ -83,28 +117,17 @@ struct ParserData *opk_open(const char *opk_filename)
 			break;
 	}
 
-	return pdata;
-
-err_free_buf:
-	free(buf);
-err_free_pkgdata:
-	free(pdata->pdata);
-err_free_parserdata:
-	free(pdata);
-	return NULL;
+	return name;
 }
 
 void opk_close(struct ParserData *pdata)
 {
 	opk_sqfs_close(pdata->pdata);
 
-	while (!SLIST_EMPTY(&pdata->head)) {
-		struct Entry *entry = SLIST_FIRST(&pdata->head);
-		SLIST_REMOVE_HEAD(&pdata->head, next);
-		free(entry);
-	}
+	list_free(pdata);
 
-	free(pdata->buf);
+	if (pdata->buf)
+		free(pdata->buf);
 	free(pdata);
 }
 
