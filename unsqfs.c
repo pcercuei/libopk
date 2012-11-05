@@ -369,6 +369,8 @@ struct PkgData {
 	int fd;
 	char *inode_table, *directory_table;
 	unsigned int cur_blocks;
+
+	struct dir *dir;
 };
 
 static const int lookup_type[] = {
@@ -1024,6 +1026,31 @@ static struct cache_entry *deflator(struct PkgData *pdata,
 		return entry;
 }
 
+const char *opk_sqfs_get_metadata(struct PkgData *pdata)
+{
+	struct inode *i;
+	unsigned int start_block = SQUASHFS_INODE_BLK(pdata->sBlk.root_inode);
+	unsigned int offset = SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode);
+	unsigned int type;
+	char *n, *ptr;
+
+	if (!pdata->dir)
+		pdata->dir = squashfs_opendir(pdata, start_block, offset, &i);
+
+	while(squashfs_readdir(pdata->dir, &n, &start_block, &offset, &type)) {
+		if(type != SQUASHFS_FILE_TYPE)
+			continue;
+
+		ptr = strrchr(n, '.');
+		if (ptr && !strcmp(ptr + 1, "desktop"))
+			return n;
+	}
+
+	squashfs_closedir(pdata->dir);
+	pdata->dir = NULL;
+	return NULL;
+}
+
 struct PkgData *opk_sqfs_open(const char *image_name)
 {
 	struct PkgData *pdata;
@@ -1058,6 +1085,9 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 
 void opk_sqfs_close(struct PkgData *pdata)
 {
+	if (pdata->dir)
+		squashfs_closedir(pdata->dir);
+
 	free(pdata->inode_table);
 	free(pdata->directory_table);
 	free(pdata->fragment_table);
