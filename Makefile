@@ -1,3 +1,5 @@
+USE_GZIP ?= 1
+USE_LZO ?= 0
 
 PREFIX ?= /usr/local
 
@@ -11,8 +13,13 @@ LIBOPK = $(SONAME).$(VERSION_MINOR)
 CC = $(CROSS_COMPILE)gcc
 INSTALL ?= install
 
-CFLAGS += -fPIC
-LDFLAGS += -llzo2 -lz
+CFLAGS += -fPIC -DUSE_GZIP=$(USE_GZIP) -DUSE_LZO=$(USE_LZO)
+ifeq ($(USE_GZIP),1)
+LDFLAGS += -lz
+endif
+ifeq ($(USE_LZO),1)
+LDFLAGS += -llzo2
+endif
 
 OBJS = libopk.o unsqfs.o
 

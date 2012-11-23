@@ -53,9 +53,13 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
+#if USE_GZIP
 #include <zlib.h>
+#endif
+#if USE_LZO
 #include <lzo/lzoconf.h>
 #include <lzo/lzo1x.h>
+#endif
 
 #include "unsqfs.h"
 
@@ -616,18 +620,22 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 static int squashfs_uncompress(struct PkgData *pdata,
 			void *d, void *s, int size, int block_size, int *error)
 {
-	unsigned long bytes_zlib;
-	lzo_uint bytes_lzo;
-
+#if USE_GZIP
 	if (pdata->sBlk.compression == ZLIB_COMPRESSION) {
-		bytes_zlib = block_size;
+		unsigned long bytes_zlib = block_size;
 		*error = uncompress(d, &bytes_zlib, s, size);
 		return *error == Z_OK ? (int) bytes_zlib : -1;
-	} else {
-		bytes_lzo = block_size;
+	}
+#endif
+#if USE_LZO
+	if (pdata->sBlk.compression == LZO_COMPRESSION) {
+		lzo_uint bytes_lzo = block_size;
 		*error = lzo1x_decompress_safe(s, size, d, &bytes_lzo, NULL);
 		return *error == LZO_E_OK ? bytes_lzo : -1;
 	}
+#endif
+	*error = -EINVAL;
+	return -1;
 }
 
 static struct cache *cache_init(int buffer_size)
@@ -1066,10 +1074,6 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 
 	if(read_super(pdata, image_name) == FALSE)
 		EXIT_UNSQUASH("Could not read superblock\n");
-
-	if ((pdata->sBlk.compression != ZLIB_COMPRESSION)
-				&& (pdata->sBlk.compression != LZO_COMPRESSION))
-		EXIT_UNSQUASH("No decompressors available:\n");
 
 	pdata->fragment_cache = cache_init(pdata->sBlk.block_size);
 	pdata->data_cache = cache_init(pdata->sBlk.block_size);
