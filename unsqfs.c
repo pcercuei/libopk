@@ -59,7 +59,7 @@
 
 #include "unsqfs.h"
 
-#define SQUASHFS_CACHED_FRAGMENTS	CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE	
+#define SQUASHFS_CACHED_FRAGMENTS	CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE
 #define SQUASHFS_MAGIC			0x73717368
 #define SQUASHFS_START			0
 
@@ -219,7 +219,7 @@ union squashfs_inode_header {
 	struct squashfs_dir_inode_header	dir;
 	struct squashfs_ldir_inode_header	ldir;
 };
-	
+
 struct squashfs_dir_entry {
 	unsigned short		offset;
 	short			inode_number;
@@ -480,7 +480,7 @@ static struct inode *read_inode(struct PkgData *pdata,
 
 	if(bytes == -1)
 		EXIT_UNSQUASH("read_inode: inode table block %lld not found\n",
-			start); 		
+			start);
 
 	memcpy(&header->base, block_ptr, sizeof(*(&header->base)));
 
@@ -518,7 +518,7 @@ static struct inode *read_inode(struct PkgData *pdata,
 			i->sparse = 0;
 			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
-		}	
+		}
                 case SQUASHFS_LDIR_TYPE: {
                         struct squashfs_ldir_inode_header *inode = &header->ldir;
 
@@ -573,9 +573,9 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 	dir->mtime = (*i)->time;
 	dir->dirs = NULL;
 
-	while(bytes < size) {			
+	while(bytes < size) {
 		memcpy(&dirh, pdata->directory_table + bytes, sizeof(*(&dirh)));
-	
+
 		dir_count = dirh.count + 1;
 		TRACE("squashfs_opendir: Read directory header @ byte position "
 			"%d, %d directory entries\n", bytes, dir_count);
@@ -668,7 +668,7 @@ static struct cache_entry *cache_get(struct PkgData *pdata,
 
 	return reader(pdata, entry);
 }
-	
+
 static void add_entry(struct hash_table_entry *hash_table[], long long start,
 	int bytes)
 {
@@ -737,7 +737,7 @@ static int read_block(struct PkgData *pdata,
 	unsigned short c_byte;
 	int offset = 2;
 	int fd = pdata->fd;
-	
+
 	if(read_fs_bytes(fd, start, 2, &c_byte) == FALSE)
 		goto failed;
 
