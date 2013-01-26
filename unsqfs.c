@@ -1092,6 +1092,8 @@ void opk_sqfs_close(struct PkgData *pdata)
 	if (pdata->dir)
 		squashfs_closedir(pdata->dir);
 
+	close(pdata->fd);
+
 	free(pdata->inode_table);
 	free(pdata->directory_table);
 	free(pdata->fragment_table);
