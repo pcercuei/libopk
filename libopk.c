@@ -24,7 +24,6 @@ struct ParserData {
 struct ParserData *opk_open(const char *opk_filename)
 {
 	struct ParserData *pdata;
-	char *buf;
 
 	pdata = malloc(sizeof(*pdata));
 	if (!pdata)

@@ -846,7 +846,7 @@ static void write_block(struct PkgData *pdata, char *buf_in,
 
 static int write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 {
-	unsigned int i;
+	int i;
 	unsigned int *block_list;
 	int file_end = inode->data / pdata->sBlk.block_size;
 	long long start = inode->start;
