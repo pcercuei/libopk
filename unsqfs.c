@@ -515,16 +515,16 @@ static struct inode *read_inode(struct PkgData *pdata,
 			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
 		}
-                case SQUASHFS_LDIR_TYPE: {
-                        struct squashfs_ldir_inode_header *inode = &header->ldir;
+		case SQUASHFS_LDIR_TYPE: {
+			struct squashfs_ldir_inode_header *inode = &header->ldir;
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
-                        i->data = inode->file_size;
-                        i->offset = inode->offset;
-                        i->start = inode->start_block;
-                        break;
-                }
+			i->data = inode->file_size;
+			i->offset = inode->offset;
+			i->start = inode->start_block;
+			break;
+		}
 		default:
 			TRACE("read_inode: skipping inode type %d\n", header->base.inode_type);
 			return NULL;
@@ -1034,8 +1034,8 @@ static struct cache_entry *reader(struct PkgData *pdata,
 			struct cache_entry *entry)
 {
 	int res = read_fs_bytes(pdata->fd, entry->block,
-		SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
-		entry->data);
+			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
+			entry->data);
 
 	if(res && SQUASHFS_COMPRESSED_BLOCK(entry->size))
 		deflator(pdata, entry);
@@ -1070,16 +1070,16 @@ static struct cache_entry *deflator(struct PkgData *pdata,
 	char tmp[pdata->sBlk.block_size];
 	int error, res;
 
-		res = squashfs_uncompress(pdata, tmp, entry->data,
+	res = squashfs_uncompress(pdata, tmp, entry->data,
 			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
 			pdata->sBlk.block_size, &error);
 
-		if(res == -1)
-			ERROR("uncompress failed with error code %d\n", error);
-		else
-			memcpy(entry->data, tmp, res);
+	if(res == -1)
+		ERROR("uncompress failed with error code %d\n", error);
+	else
+		memcpy(entry->data, tmp, res);
 
-		return entry;
+	return entry;
 }
 
 const char *opk_sqfs_get_metadata(struct PkgData *pdata)
