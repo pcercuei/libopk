@@ -260,12 +260,6 @@ struct squashfs_fragment_entry {
 			fprintf(stderr, s, ## args); \
 		} while(0)
 
-#define EXIT_UNSQUASH(s, args...) \
-		do { \
-			fprintf(stderr, "FATAL ERROR aborting: "s, ## args); \
-			exit(1); \
-		} while(0)
-
 #define CALCULATE_HASH(start)	(start & 0xffff)
 
 struct hash_table_entry {
