@@ -479,9 +479,10 @@ static struct inode *read_inode(struct PkgData *pdata,
 
 	TRACE("read_inode: reading inode [%d:%d]\n", start_block,  offset);
 
-	if(bytes == -1)
-		EXIT_UNSQUASH("read_inode: inode table block %lld not found\n",
-			start);
+	if (bytes == -1) {
+		ERROR("Inode table block %lld not found\n", start);
+		return NULL;
+	}
 
 	memcpy(&header->base, block_ptr, sizeof(*(&header->base)));
 
@@ -554,19 +555,26 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 		block_start, offset);
 
 	*i = read_inode(pdata, block_start, offset);
+	if (!*i) {
+		ERROR("Failed to read directory inode\n");
+		return NULL;
+	}
+
 	start = pdata->sBlk.directory_table_start + (*i)->start;
 	bytes = lookup_entry(pdata->directory_table_hash, start);
-
-	if(bytes == -1)
-		EXIT_UNSQUASH("squashfs_opendir: directory block %d not "
-			"found!\n", block_start);
+	if (bytes == -1) {
+		ERROR("Failed to open directory: block %d not found\n", block_start);
+		return NULL;
+	}
 
 	bytes += (*i)->offset;
 	size = (*i)->data + bytes - 3;
 
 	dir = malloc(sizeof(struct dir));
-	if(dir == NULL)
-		EXIT_UNSQUASH("squashfs_opendir: malloc failed!\n");
+	if (!dir) {
+		ERROR("Failed to allocate directory struct\n");
+		return NULL;
+	}
 
 	dir->dir_count = 0;
 	dir->cur_entry = 0;
@@ -596,9 +604,11 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 			if((dir->dir_count % DIR_ENT_SIZE) == 0) {
 				new_dir = realloc(dir->dirs, (dir->dir_count +
 					DIR_ENT_SIZE) * sizeof(struct dir_ent));
-				if(new_dir == NULL)
-					EXIT_UNSQUASH("squashfs_opendir: "
-						"realloc failed!\n");
+				if (!new_dir) {
+					ERROR("Failed to (re)allocate directory contents\n");
+					free(dir);
+					return NULL;
+				}
 				dir->dirs = new_dir;
 			}
 			strcpy(dir->dirs[dir->dir_count].name, dire->name);
@@ -660,11 +670,16 @@ static struct cache_entry *cache_get(struct PkgData *pdata,
 	struct cache_entry *entry;
 
 	entry = malloc(sizeof(struct cache_entry));
-	if(entry == NULL)
-		EXIT_UNSQUASH("Out of memory in cache_get\n");
+	if (!entry) {
+		ERROR("Failed to allocate cache entry\n");
+		return NULL;
+	}
 	entry->data = malloc(cache->buffer_size);
-	if(entry->data == NULL)
-		EXIT_UNSQUASH("Out of memory in cache_get\n");
+	if (!entry->data) {
+		ERROR("Failed to allocate cache entry data\n");
+		free(entry);
+		return NULL;
+	}
 
 	entry->cache = cache;
 	entry->block = block;
@@ -835,8 +850,7 @@ static void write_block(struct PkgData *pdata, char *buf_in,
 	memcpy(buf_out, buf_in, size);
 }
 
-static void write_buf(struct PkgData *pdata,
-			struct inode *inode, char *buf)
+static int write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 {
 	unsigned int i;
 	unsigned int *block_list;
@@ -847,8 +861,10 @@ static void write_buf(struct PkgData *pdata,
 	pdata->cur_blocks = inode->blocks + (inode->frag_bytes > 0);
 
 	block_list = malloc(inode->blocks * sizeof(unsigned int));
-	if(block_list == NULL)
-		EXIT_UNSQUASH("write_buf: unable to malloc block list\n");
+	if (!block_list) {
+		ERROR("Failed to allocate block list\n");
+		goto fail_exit;
+	}
 
 	read_block_list(block_list, inode->block_ptr, inode->blocks);
 
@@ -856,8 +872,10 @@ static void write_buf(struct PkgData *pdata,
 		int c_byte = SQUASHFS_COMPRESSED_SIZE_BLOCK(block_list[i]);
 		struct file_entry *block = malloc(sizeof(struct file_entry));
 
-		if(block == NULL)
-			EXIT_UNSQUASH("write_buf: unable to malloc file\n");
+		if (!block) {
+			ERROR("Failed to allocate block\n");
+			goto fail_free_list;
+		}
 		block->offset = 0;
 		block->size = i == file_end ?
 		  inode->data & (pdata->sBlk.block_size - 1) : pdata->sBlk.block_size;
@@ -866,6 +884,10 @@ static void write_buf(struct PkgData *pdata,
 		else {
 			block->buffer = cache_get(pdata, pdata->data_cache,
 						start, block_list[i]);
+			if (!block->buffer) {
+				free(block);
+				goto fail_free_list;
+			}
 			start += c_byte;
 		}
 
@@ -878,16 +900,28 @@ static void write_buf(struct PkgData *pdata,
 		long long start;
 		struct file_entry *block = malloc(sizeof(struct file_entry));
 
-		if(block == NULL)
-			EXIT_UNSQUASH("write_buf: unable to malloc file\n");
+		if (!block) {
+			ERROR("Failed to allocate fragment block\n");
+			goto fail_free_list;
+		}
 		read_fragment(pdata, inode->fragment, &start, &size);
 		block->buffer = cache_get(pdata, pdata->fragment_cache, start, size);
+		if (!block->buffer) {
+			free(block);
+			goto fail_free_list;
+		}
 		block->offset = inode->offset;
 		block->size = inode->frag_bytes;
 		writer(pdata, block, buf);
 	}
 
 	free(block_list);
+	return TRUE;
+
+fail_free_list:
+	free(block_list);
+fail_exit:
+	return FALSE;
 }
 
 static int uncompress_directory_table(struct PkgData *pdata)
@@ -964,15 +998,22 @@ static int read_super(struct PkgData *pdata, const char *source)
 	}
 }
 
+// TODO: There is currently no way to tell apart "no such file" from other
+//       errors such as allocation failures.
 static struct inode *get_inode_from_dir(struct PkgData *pdata,
 			const char *name, unsigned int start_block, unsigned int offset)
 {
 	char *n;
 	struct inode *i;
 	unsigned int type;
-	struct dir *dir = squashfs_opendir(pdata, start_block, offset, &i);
-	i = NULL;
+	struct dir *dir;
 
+	dir = squashfs_opendir(pdata, start_block, offset, &i);
+	if (!dir) {
+		return NULL;
+	}
+
+	i = NULL;
 	while(squashfs_readdir(dir, &n, &start_block, &offset, &type)) {
 		if(type == SQUASHFS_DIR_TYPE)
 			i = get_inode_from_dir(pdata, name, start_block, offset);
@@ -1055,8 +1096,12 @@ const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 	unsigned int type;
 	char *n, *ptr;
 
-	if (!pdata->dir)
+	if (!pdata->dir) {
 		pdata->dir = squashfs_opendir(pdata, start_block, offset, &i);
+		if (!pdata->dir) {
+			return NULL;
+		}
+	}
 
 	while(squashfs_readdir(pdata->dir, &n, &start_block, &offset, &type)) {
 		if(type != SQUASHFS_FILE_TYPE)
@@ -1149,13 +1194,21 @@ char *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
 	char *buf;
 
 	i = get_inode(pdata, name);
-	if (!i)
-		EXIT_UNSQUASH("Unable to find inode\n");
+	if (!i) {
+		ERROR("Unable to find inode for path \"%s\"\n", name);
+		return NULL;
+	}
 
 	buf = calloc(1, i->data + 1);
-	if(!buf)
-		EXIT_UNSQUASH("Unable to allocate private buffer");
+	if (!buf) {
+		ERROR("Unable to allocate file extraction buffer\n");
+		return NULL;
+	}
 
-	write_buf(pdata, i, buf);
+	if (!write_buf(pdata, i, buf)) {
+		free(buf);
+		return NULL;
+	}
+
 	return buf;
 }
