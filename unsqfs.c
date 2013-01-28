@@ -418,40 +418,37 @@ static void read_block_list(unsigned int *block_list, char *block_ptr, int block
 
 static int read_fragment_table(struct PkgData *pdata)
 {
-	int res, i, indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
+	int i, indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
 	long long fragment_table_index[indexes];
 
 	TRACE("read_fragment_table: %d fragments, reading %d fragment indexes "
 		"from 0x%llx\n", pdata->sBlk.fragments, indexes,
 		pdata->sBlk.fragment_table_start);
 
-	if(pdata->sBlk.fragments == 0)
+	if (pdata->sBlk.fragments == 0)
 		return TRUE;
 
 	pdata->fragment_table = malloc(pdata->sBlk.fragments *
-		sizeof(struct squashfs_fragment_entry));
-	if(pdata->fragment_table == NULL)
-		EXIT_UNSQUASH("read_fragment_table: failed to allocate "
-			"fragment table\n");
-
-	res = read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
-		SQUASHFS_FRAGMENT_INDEX_BYTES(pdata->sBlk.fragments),
-		fragment_table_index);
-	if(res == FALSE) {
-		ERROR("read_fragment_table: failed to read fragment table "
-			"index\n");
+			sizeof(struct squashfs_fragment_entry));
+	if (!pdata->fragment_table) {
+		ERROR("Failed to allocate fragment table\n");
 		return FALSE;
 	}
 
-	for(i = 0; i < indexes; i++) {
+	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
+			SQUASHFS_FRAGMENT_INDEX_BYTES(pdata->sBlk.fragments),
+			fragment_table_index)) {
+		ERROR("Failed to read fragment table index\n");
+		return FALSE;
+	}
+
+	for (i = 0; i < indexes; i++) {
 		int length = read_block(pdata, fragment_table_index[i], NULL,
-			((char *) pdata->fragment_table) + (i *
-			SQUASHFS_METADATA_SIZE));
+			((char *) pdata->fragment_table) + (i * SQUASHFS_METADATA_SIZE));
 		TRACE("Read fragment table block %d, from 0x%llx, length %d\n",
 			i, fragment_table_index[i], length);
-		if(length == FALSE) {
-			ERROR("read_fragment_table: failed to read fragment "
-				"table index\n");
+		if (length == 0) {
+			ERROR("Failed to read fragment table block %d\n", i);
 			return FALSE;
 		}
 	}
@@ -642,11 +639,10 @@ static struct cache *cache_init(int buffer_size)
 {
 	struct cache *cache = malloc(sizeof(struct cache));
 
-	if(cache == NULL)
-		EXIT_UNSQUASH("Out of memory in cache_init\n");
-
-	cache->buffer_size = buffer_size;
-	memset(cache->hash_table, 0, sizeof(struct cache_entry *) * 65536);
+	if (cache) {
+		cache->buffer_size = buffer_size;
+		memset(cache->hash_table, 0, sizeof(struct cache_entry *) * 65536);
+	}
 
 	return cache;
 }
@@ -677,20 +673,24 @@ static struct cache_entry *cache_get(struct PkgData *pdata,
 	return reader(pdata, entry);
 }
 
-static void add_entry(struct hash_table_entry *hash_table[], long long start,
+static int add_entry(struct hash_table_entry *hash_table[], long long start,
 	int bytes)
 {
 	int hash = CALCULATE_HASH(start);
 	struct hash_table_entry *hash_table_entry;
 
 	hash_table_entry = malloc(sizeof(struct hash_table_entry));
-	if(hash_table_entry == NULL)
-		EXIT_UNSQUASH("Out of memory in add_entry\n");
+	if (!hash_table_entry) {
+		ERROR("Failed to allocate hash table entry\n");
+		return FALSE;
+	}
 
 	hash_table_entry->start = start;
 	hash_table_entry->bytes = bytes;
 	hash_table_entry->next = hash_table[hash];
 	hash_table[hash] = hash_table_entry;
+
+	return TRUE;
 }
 
 int lookup_entry(struct hash_table_entry *hash_table[], long long start)
@@ -785,7 +785,7 @@ failed:
 	return FALSE;
 }
 
-static void uncompress_inode_table(struct PkgData *pdata)
+static int uncompress_inode_table(struct PkgData *pdata)
 {
 	int size = 0, bytes = 0, res;
 	long long start = pdata->sBlk.inode_table_start;
@@ -796,20 +796,24 @@ static void uncompress_inode_table(struct PkgData *pdata)
 		if(size - bytes < SQUASHFS_METADATA_SIZE) {
 			pdata->inode_table = realloc(pdata->inode_table,
 						size += SQUASHFS_METADATA_SIZE);
-			if(pdata->inode_table == NULL)
-				EXIT_UNSQUASH("Out of memory in "
-					"uncompress_inode_table");
+			if (!pdata->inode_table) {
+				ERROR("Failed to (re)allocate inode table\n");
+				return FALSE;
+			}
 		}
 		TRACE("uncompress_inode_table: reading block 0x%llx\n", start);
-		add_entry(pdata->inode_table_hash, start, bytes);
+		if (!add_entry(pdata->inode_table_hash, start, bytes)) {
+			return FALSE;
+		}
 		res = read_block(pdata, start, &start, pdata->inode_table + bytes);
-		if(res == 0) {
-			free(pdata->inode_table);
-			EXIT_UNSQUASH("uncompress_inode_table: failed to read "
-				"block \n");
+		if (res == 0) {
+			ERROR("Failed to read inode table block\n");
+			return FALSE;
 		}
 		bytes += res;
 	}
+
+	return TRUE;
 }
 
 static void write_block(struct PkgData *pdata, char *buf_in,
@@ -886,7 +890,7 @@ static void write_buf(struct PkgData *pdata,
 	free(block_list);
 }
 
-static void uncompress_directory_table(struct PkgData *pdata)
+static int uncompress_directory_table(struct PkgData *pdata)
 {
 	int bytes = 0, size = 0, res;
 	long long start = pdata->sBlk.directory_table_start;
@@ -898,19 +902,25 @@ static void uncompress_directory_table(struct PkgData *pdata)
 		if(size - bytes < SQUASHFS_METADATA_SIZE) {
 			pdata->directory_table = realloc(pdata->directory_table,
 						size += SQUASHFS_METADATA_SIZE);
-			if(pdata->directory_table == NULL)
-				EXIT_UNSQUASH("Out of memory in "
-					"uncompress_directory_table\n");
+			if (!pdata->directory_table) {
+				ERROR("Failed to (re)allocate directory table\n");
+				return FALSE;
+			}
 		}
 		TRACE("uncompress_directory_table: reading block 0x%llx\n",
 				start);
-		add_entry(pdata->directory_table_hash, start, bytes);
+		if (!add_entry(pdata->directory_table_hash, start, bytes)) {
+			return FALSE;
+		}
 		res = read_block(pdata, start, &start, pdata->directory_table + bytes);
-		if(res == 0)
-			EXIT_UNSQUASH("uncompress_directory_table: failed to "
-				"read block\n");
+		if (res == 0) {
+			ERROR("Failed to read directory table block\n");
+			return FALSE;
+		}
 		bytes += res;
 	}
+
+	return TRUE;
 }
 
 static int squashfs_readdir(struct dir *dir, char **name,
@@ -939,14 +949,17 @@ static int read_super(struct PkgData *pdata, const char *source)
 	/*
 	 * Try to read a Squashfs 4 superblock
 	 */
-	read_fs_bytes(pdata->fd, SQUASHFS_START, sizeof(struct squashfs_super_block),
-		&pdata->sBlk);
+	if (!read_fs_bytes(pdata->fd, SQUASHFS_START,
+			sizeof(struct squashfs_super_block), &pdata->sBlk)) {
+		ERROR("Failed to read SQUASHFS superblock on %s\n", source);
+		return FALSE;
+	}
 
 	if(pdata->sBlk.s_magic == SQUASHFS_MAGIC && pdata->sBlk.s_major == 4 &&
 			pdata->sBlk.s_minor == 0) {
 		return TRUE;
 	} else {
-		ERROR("Can't find a SQUASHFS superblock on %s\n", source);
+		ERROR("Invalid SQUASHFS superblock on %s\n", source);
 		return FALSE;
 	}
 }
@@ -1064,27 +1077,55 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 	struct PkgData *pdata;
 
 	pdata = calloc(1, sizeof(*pdata));
-	if (!pdata)
-		EXIT_UNSQUASH("Unable to create data structure: %s\n",
-					strerror(errno));
+	if (!pdata) {
+		ERROR("Unable to create data structure: %s\n", strerror(errno));
+		goto fail_exit;
+	}
 
-	if((pdata->fd = open(image_name, O_RDONLY)) == -1)
-		EXIT_UNSQUASH("Could not open %s, because %s\n", image_name,
-			strerror(errno));
+	if ((pdata->fd = open(image_name, O_RDONLY)) == -1) {
+		ERROR("Could not open %s: %s\n", image_name, strerror(errno));
+		goto fail_free;
+	}
 
-	if(read_super(pdata, image_name) == FALSE)
-		EXIT_UNSQUASH("Could not read superblock\n");
+	if (!read_super(pdata, image_name)) {
+		ERROR("Could not read superblock\n");
+		goto fail_close;
+	}
 
-	pdata->fragment_cache = cache_init(pdata->sBlk.block_size);
-	pdata->data_cache = cache_init(pdata->sBlk.block_size);
+	if (!(pdata->fragment_cache = cache_init(pdata->sBlk.block_size))) {
+		ERROR("Failed to allocate fragment cache\n");
+		goto fail_close;
+	}
+	if (!(pdata->data_cache = cache_init(pdata->sBlk.block_size))) {
+		ERROR("Failed to allocate data cache\n");
+		goto fail_close;
+	}
 
-	if(read_fragment_table(pdata) == FALSE)
-		EXIT_UNSQUASH("failed to read fragment table\n");
+	if (!read_fragment_table(pdata)) {
+		ERROR("Failed to read fragment table\n");
+		goto fail_close;
+	}
 
-	uncompress_inode_table(pdata);
-	uncompress_directory_table(pdata);
+	if (!uncompress_inode_table(pdata)) {
+		goto fail_close;
+	}
+	if (!uncompress_directory_table(pdata)) {
+		goto fail_close;
+	}
 
 	return pdata;
+
+fail_close:
+	close(pdata->fd);
+fail_free:
+	free(pdata->inode_table);
+	free(pdata->directory_table);
+	free(pdata->fragment_table);
+	free(pdata->fragment_cache);
+	free(pdata->data_cache);
+	free(pdata);
+fail_exit:
+	return NULL;
 }
 
 void opk_sqfs_close(struct PkgData *pdata)
