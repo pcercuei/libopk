@@ -434,18 +434,6 @@ static bool read_fragment_table(struct PkgData *pdata)
 	return true;
 }
 
-static void read_fragment(struct PkgData *pdata,
-			unsigned int fragment, long long *start_block, int *size)
-{
-	TRACE("read_fragment: reading fragment %d\n", fragment);
-
-	struct squashfs_fragment_entry *fragment_entry;
-
-	fragment_entry = &pdata->fragment_table[fragment];
-	*start_block = fragment_entry->start_block;
-	*size = fragment_entry->size;
-}
-
 static struct inode *read_inode(struct PkgData *pdata,
 			unsigned int start_block, unsigned int offset)
 {
@@ -888,12 +876,13 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 	}
 
 	if (inode->frag_bytes) {
-		int size;
-		long long start;
-		read_fragment(pdata, inode->fragment, &start, &size);
+		TRACE("read_fragment: reading fragment %d\n", inode->fragment);
 
-		struct cache_entry *buffer =
-				cache_get(pdata, pdata->fragment_cache, start, size);
+		struct squashfs_fragment_entry *fragment_entry =
+				&pdata->fragment_table[inode->fragment];
+
+		struct cache_entry *buffer = cache_get(pdata, pdata->fragment_cache,
+				fragment_entry->start_block, fragment_entry->size);
 		if (!buffer) {
 			return false;
 		}
