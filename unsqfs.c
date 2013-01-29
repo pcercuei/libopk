@@ -873,6 +873,10 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 
 	for(i = 0; i < inode->blocks; i++) {
 		int c_byte = SQUASHFS_COMPRESSED_SIZE_BLOCK(block_list[i]);
+		int size =
+			  i == file_end
+			? inode->data & (pdata->sBlk.block_size - 1)
+			: pdata->sBlk.block_size;
 		struct file_entry *block = malloc(sizeof(struct file_entry));
 
 		if (!block) {
@@ -880,8 +884,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 			goto fail_free_list;
 		}
 		block->offset = 0;
-		block->size = i == file_end ?
-		  inode->data & (pdata->sBlk.block_size - 1) : pdata->sBlk.block_size;
+		block->size = size;
 		if(block_list[i] == 0) /* sparse file */
 			block->buffer = NULL;
 		else {
@@ -895,7 +898,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		}
 
 		writer(pdata, block, buf);
-		buf += block->size;
+		buf += size;
 	}
 
 	if(inode->frag_bytes) {
