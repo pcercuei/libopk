@@ -637,17 +637,12 @@ static struct cache *cache_init()
 	return cache;
 }
 
-static void *cache_get(struct PkgData *pdata, long long block, int size)
+static bool read_data_block(struct PkgData *pdata, void *data,
+		long long block, int size)
 {
-	void *data = malloc(pdata->sBlk.block_size);
-	if (!data) {
-		ERROR("Failed to allocate cache entry data\n");
-		goto fail_exit;
-	}
-
 	if (!read_fs_bytes(pdata->fd, block,
 			SQUASHFS_COMPRESSED_SIZE_BLOCK(size), data)) {
-		goto fail_free_data;
+		return false;
 	}
 
 	if (SQUASHFS_COMPRESSED_BLOCK(size)) {
@@ -660,17 +655,12 @@ static void *cache_get(struct PkgData *pdata, long long block, int size)
 
 		if (res == -1) {
 			ERROR("Uncompress failed with error code %d\n", error);
-			goto fail_free_data;
+			return false;
 		}
 		memcpy(data, tmp, res);
 	}
 
-	return data;
-
-fail_free_data:
-	free(data);
-fail_exit:
-	return NULL;
+	return true;
 }
 
 static bool add_entry(struct hash_table_entry *hash_table[], long long start,
@@ -821,13 +811,17 @@ static bool uncompress_inode_table(struct PkgData *pdata)
 
 static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 {
-	int i;
-	int file_end = inode->data / pdata->sBlk.block_size;
-	long long start = inode->start;
-
 	TRACE("write_buf: regular file, blocks %d\n", inode->blocks);
 
-	for(i = 0; i < inode->blocks; i++) {
+	void *data = malloc(pdata->sBlk.block_size);
+	if (!data) {
+		ERROR("Failed to allocate block data buffer\n");
+		return false;
+	}
+
+	const int file_end = inode->data / pdata->sBlk.block_size;
+	long long start = inode->start;
+	for (int i = 0; i < inode->blocks; i++) {
 		unsigned int csize = inode->block_ptr[i];
 		int size =
 			  i == file_end
@@ -837,14 +831,12 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		if (csize == 0) { /* sparse file */
 			memset(buf, 0, size);
 		} else {
-			void *data = cache_get(pdata, start, csize);
-			if (!data) {
-				return false;
+			if (!read_data_block(pdata, data, start, csize)) {
+				goto fail_free_data;
 			}
 			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(csize);
 
 			memcpy(buf, data, size);
-			free(data);
 		}
 		buf += size;
 	}
@@ -855,17 +847,20 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		struct squashfs_fragment_entry *fragment_entry =
 				&pdata->fragment_table[inode->fragment];
 
-		void *data = cache_get(pdata,
-				fragment_entry->start_block, fragment_entry->size);
-		if (!data) {
-			return false;
+		if (!read_data_block(pdata, data,
+				fragment_entry->start_block, fragment_entry->size)) {
+			goto fail_free_data;
 		}
 
 		memcpy(buf, data + inode->offset, inode->frag_bytes);
-		free(data);
 	}
 
+	free(data);
 	return true;
+
+fail_free_data:
+	free(data);
+	return false;
 }
 
 static bool uncompress_directory_table(struct PkgData *pdata)
