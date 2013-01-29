@@ -302,13 +302,11 @@ struct inode {
 
 /* Cache status struct */
 struct cache {
-	int	buffer_size;
 	struct cache_entry *hash_table[65536];
 };
 
 /* struct describing a cache entry */
 struct cache_entry {
-	struct cache *cache;
 	long long block;
 	int	size;
 	char *data;
@@ -628,12 +626,11 @@ static int squashfs_uncompress(struct PkgData *pdata,
 	return -1;
 }
 
-static struct cache *cache_init(int buffer_size)
+static struct cache *cache_init()
 {
 	struct cache *cache = malloc(sizeof(struct cache));
 
 	if (cache) {
-		cache->buffer_size = buffer_size;
 		memset(cache->hash_table, 0, sizeof(struct cache_entry *) * 65536);
 	}
 
@@ -641,7 +638,7 @@ static struct cache *cache_init(int buffer_size)
 }
 
 static struct cache_entry *cache_get(struct PkgData *pdata,
-			struct cache *cache, long long block, int size)
+			long long block, int size)
 {
 	/*
 	 * Get a block out of the cache.  If the block isn't in the cache
@@ -657,13 +654,12 @@ static struct cache_entry *cache_get(struct PkgData *pdata,
 		ERROR("Failed to allocate cache entry\n");
 		return NULL;
 	}
-	entry->data = malloc(cache->buffer_size);
+	entry->data = malloc(pdata->sBlk.block_size);
 	if (!entry->data) {
 		ERROR("Failed to allocate cache entry data\n");
 		goto fail_free_entry;
 	}
 
-	entry->cache = cache;
 	entry->block = block;
 	entry->size = size;
 
@@ -861,8 +857,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		if (csize == 0) { /* sparse file */
 			memset(buf, 0, size);
 		} else {
-			struct cache_entry *buffer =
-					cache_get(pdata, pdata->data_cache, start, csize);
+			struct cache_entry *buffer = cache_get(pdata, start, csize);
 			if (!buffer) {
 				return false;
 			}
@@ -881,7 +876,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		struct squashfs_fragment_entry *fragment_entry =
 				&pdata->fragment_table[inode->fragment];
 
-		struct cache_entry *buffer = cache_get(pdata, pdata->fragment_cache,
+		struct cache_entry *buffer = cache_get(pdata,
 				fragment_entry->start_block, fragment_entry->size);
 		if (!buffer) {
 			return false;
@@ -1057,11 +1052,11 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		goto fail_close;
 	}
 
-	if (!(pdata->fragment_cache = cache_init(pdata->sBlk.block_size))) {
+	if (!(pdata->fragment_cache = cache_init())) {
 		ERROR("Failed to allocate fragment cache\n");
 		goto fail_close;
 	}
-	if (!(pdata->data_cache = cache_init(pdata->sBlk.block_size))) {
+	if (!(pdata->data_cache = cache_init())) {
 		ERROR("Failed to allocate data cache\n");
 		goto fail_close;
 	}
