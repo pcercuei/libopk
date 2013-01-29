@@ -342,16 +342,6 @@ struct file_entry {
 	struct cache_entry *buffer;
 };
 
-struct squashfs_file {
-	int fd;
-	int blocks;
-	long long file_size;
-	int mode;
-	time_t time;
-	char *pathname;
-	char sparse;
-};
-
 struct path_entry {
 	char *name;
 	struct pathname *paths;
@@ -372,8 +362,6 @@ struct PkgData {
 	struct squashfs_super_block sBlk;
 	union squashfs_inode_header header;
 	struct inode inode;
-
-	struct squashfs_file *file;
 
 	struct squashfs_fragment_entry *fragment_table;
 	struct cache *fragment_cache, *data_cache;
