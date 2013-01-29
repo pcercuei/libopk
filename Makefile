@@ -13,7 +13,8 @@ LIBOPK = $(SONAME).$(VERSION_MINOR)
 CC = $(CROSS_COMPILE)gcc
 INSTALL ?= install
 
-CFLAGS += -Wall -Wextra -fPIC -DUSE_GZIP=$(USE_GZIP) -DUSE_LZO=$(USE_LZO)
+CFLAGS += -std=c99 -Wall -Wextra -fPIC \
+	-DUSE_GZIP=$(USE_GZIP) -DUSE_LZO=$(USE_LZO)
 ifeq ($(USE_GZIP),1)
 LDFLAGS += -lz
 endif

@@ -40,10 +40,9 @@
 
 #define _GNU_SOURCE
 
-#define TRUE 1
-#define FALSE 0
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -391,7 +390,7 @@ static const int lookup_type[] = {
 
 
 /* forward delcarations */
-static int read_fs_bytes(int fd, long long byte, int bytes, void *buff);
+static bool read_fs_bytes(int fd, long long byte, int bytes, void *buff);
 static int read_block(struct PkgData *pdata,
 			long long start, long long *next, void *block);
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
@@ -410,7 +409,7 @@ static void read_block_list(unsigned int *block_list, char *block_ptr, int block
 	memcpy(block_list, block_ptr, blocks * sizeof(unsigned int));
 }
 
-static int read_fragment_table(struct PkgData *pdata)
+static bool read_fragment_table(struct PkgData *pdata)
 {
 	int i, indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
 	long long fragment_table_index[indexes];
@@ -420,20 +419,20 @@ static int read_fragment_table(struct PkgData *pdata)
 		pdata->sBlk.fragment_table_start);
 
 	if (pdata->sBlk.fragments == 0)
-		return TRUE;
+		return true;
 
 	pdata->fragment_table = malloc(pdata->sBlk.fragments *
 			sizeof(struct squashfs_fragment_entry));
 	if (!pdata->fragment_table) {
 		ERROR("Failed to allocate fragment table\n");
-		return FALSE;
+		return false;
 	}
 
 	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
 			SQUASHFS_FRAGMENT_INDEX_BYTES(pdata->sBlk.fragments),
 			fragment_table_index)) {
 		ERROR("Failed to read fragment table index\n");
-		return FALSE;
+		return false;
 	}
 
 	for (i = 0; i < indexes; i++) {
@@ -443,11 +442,11 @@ static int read_fragment_table(struct PkgData *pdata)
 			i, fragment_table_index[i], length);
 		if (length == 0) {
 			ERROR("Failed to read fragment table block %d\n", i);
-			return FALSE;
+			return false;
 		}
 	}
 
-	return TRUE;
+	return true;
 }
 
 static void read_fragment(struct PkgData *pdata,
@@ -682,7 +681,7 @@ static struct cache_entry *cache_get(struct PkgData *pdata,
 	return reader(pdata, entry);
 }
 
-static int add_entry(struct hash_table_entry *hash_table[], long long start,
+static bool add_entry(struct hash_table_entry *hash_table[], long long start,
 	int bytes)
 {
 	int hash = CALCULATE_HASH(start);
@@ -691,7 +690,7 @@ static int add_entry(struct hash_table_entry *hash_table[], long long start,
 	hash_table_entry = malloc(sizeof(struct hash_table_entry));
 	if (!hash_table_entry) {
 		ERROR("Failed to allocate hash table entry\n");
-		return FALSE;
+		return false;
 	}
 
 	hash_table_entry->start = start;
@@ -699,7 +698,7 @@ static int add_entry(struct hash_table_entry *hash_table[], long long start,
 	hash_table_entry->next = hash_table[hash];
 	hash_table[hash] = hash_table_entry;
 
-	return TRUE;
+	return true;
 }
 
 int lookup_entry(struct hash_table_entry *hash_table[], long long start)
@@ -716,7 +715,7 @@ int lookup_entry(struct hash_table_entry *hash_table[], long long start)
 	return -1;
 }
 
-static int read_fs_bytes(int fd, long long byte, int bytes, void *buff)
+static bool read_fs_bytes(int fd, long long byte, int bytes, void *buff)
 {
 	off_t off = byte;
 	int res, count;
@@ -726,7 +725,7 @@ static int read_fs_bytes(int fd, long long byte, int bytes, void *buff)
 
 	if(lseek(fd, off, SEEK_SET) == -1) {
 		ERROR("Lseek failed because %s\n", strerror(errno));
-		return FALSE;
+		return false;
 	}
 
 	for(count = 0; count < bytes; count += res) {
@@ -735,17 +734,17 @@ static int read_fs_bytes(int fd, long long byte, int bytes, void *buff)
 			if(res == 0) {
 				ERROR("Read on filesystem failed because "
 					"EOF\n");
-				return FALSE;
+				return false;
 			} else if(errno != EINTR) {
 				ERROR("Read on filesystem failed because %s\n",
 						strerror(errno));
-				return FALSE;
+				return false;
 			} else
 				res = 0;
 		}
 	}
 
-	return TRUE;
+	return true;
 }
 
 static int read_block(struct PkgData *pdata,
@@ -755,8 +754,9 @@ static int read_block(struct PkgData *pdata,
 	int offset = 2;
 	int fd = pdata->fd;
 
-	if(read_fs_bytes(fd, start, 2, &c_byte) == FALSE)
+	if (!read_fs_bytes(fd, start, 2, &c_byte)) {
 		goto failed;
+	}
 
 	TRACE("read_block: block @0x%llx, %d %s bytes\n", start,
 		SQUASHFS_COMPRESSED_SIZE(c_byte), SQUASHFS_COMPRESSED(c_byte) ?
@@ -767,8 +767,9 @@ static int read_block(struct PkgData *pdata,
 		int error, res;
 
 		c_byte = SQUASHFS_COMPRESSED_SIZE(c_byte);
-		if(read_fs_bytes(fd, start + offset, c_byte, buffer) == FALSE)
+		if (!read_fs_bytes(fd, start + offset, c_byte, buffer)) {
 			goto failed;
+		}
 
 		res = squashfs_uncompress(pdata, block, buffer, c_byte,
 			SQUASHFS_METADATA_SIZE, &error);
@@ -782,8 +783,9 @@ static int read_block(struct PkgData *pdata,
 		return res;
 	} else {
 		c_byte = SQUASHFS_COMPRESSED_SIZE(c_byte);
-		if(read_fs_bytes(fd, start + offset, c_byte, block) == FALSE)
+		if (!read_fs_bytes(fd, start + offset, c_byte, block)) {
 			goto failed;
+		}
 		if(next)
 			*next = start + offset + c_byte;
 		return c_byte;
@@ -791,10 +793,10 @@ static int read_block(struct PkgData *pdata,
 
 failed:
 	ERROR("read_block: failed to read block @0x%llx\n", start);
-	return FALSE;
+	return 0;
 }
 
-static int uncompress_inode_table(struct PkgData *pdata)
+static bool uncompress_inode_table(struct PkgData *pdata)
 {
 	int size = 0, bytes = 0, res;
 	long long start = pdata->sBlk.inode_table_start;
@@ -807,30 +809,30 @@ static int uncompress_inode_table(struct PkgData *pdata)
 						size += SQUASHFS_METADATA_SIZE);
 			if (!pdata->inode_table) {
 				ERROR("Failed to (re)allocate inode table\n");
-				return FALSE;
+				return false;
 			}
 		}
 		TRACE("uncompress_inode_table: reading block 0x%llx\n", start);
 		if (!add_entry(pdata->inode_table_hash, start, bytes)) {
-			return FALSE;
+			return false;
 		}
 		res = read_block(pdata, start, &start, pdata->inode_table + bytes);
 		if (res == 0) {
 			ERROR("Failed to read inode table block\n");
-			return FALSE;
+			return false;
 		}
 		bytes += res;
 	}
 
-	return TRUE;
+	return true;
 }
 
 static void write_block(struct PkgData *pdata, char *buf_in,
-			int size, long long hole, int sparse, char *buf_out)
+			int size, long long hole, bool sparse, char *buf_out)
 {
 	unsigned int block_size = pdata->sBlk.block_size;
 
-	if(hole && sparse == FALSE) {
+	if (hole && !sparse) {
 		int avail_bytes, i;
 		int blocks = (hole + block_size -1) / block_size;
 
@@ -844,7 +846,7 @@ static void write_block(struct PkgData *pdata, char *buf_in,
 	memcpy(buf_out, buf_in, size);
 }
 
-static int write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
+static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 {
 	int i;
 	unsigned int *block_list;
@@ -910,15 +912,15 @@ static int write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 	}
 
 	free(block_list);
-	return TRUE;
+	return true;
 
 fail_free_list:
 	free(block_list);
 fail_exit:
-	return FALSE;
+	return false;
 }
 
-static int uncompress_directory_table(struct PkgData *pdata)
+static bool uncompress_directory_table(struct PkgData *pdata)
 {
 	int bytes = 0, size = 0, res;
 	long long start = pdata->sBlk.directory_table_start;
@@ -932,30 +934,31 @@ static int uncompress_directory_table(struct PkgData *pdata)
 						size += SQUASHFS_METADATA_SIZE);
 			if (!pdata->directory_table) {
 				ERROR("Failed to (re)allocate directory table\n");
-				return FALSE;
+				return false;
 			}
 		}
 		TRACE("uncompress_directory_table: reading block 0x%llx\n",
 				start);
 		if (!add_entry(pdata->directory_table_hash, start, bytes)) {
-			return FALSE;
+			return false;
 		}
 		res = read_block(pdata, start, &start, pdata->directory_table + bytes);
 		if (res == 0) {
 			ERROR("Failed to read directory table block\n");
-			return FALSE;
+			return false;
 		}
 		bytes += res;
 	}
 
-	return TRUE;
+	return true;
 }
 
-static int squashfs_readdir(struct dir *dir, char **name,
+static bool squashfs_readdir(struct dir *dir, char **name,
 			unsigned int *start_block, unsigned int *offset, unsigned int *type)
 {
-	if(dir->cur_entry == dir->dir_count)
-		return FALSE;
+	if (dir->cur_entry == dir->dir_count) {
+		return false;
+	}
 
 	*name = dir->dirs[dir->cur_entry].name;
 	*start_block = dir->dirs[dir->cur_entry].start_block;
@@ -963,7 +966,7 @@ static int squashfs_readdir(struct dir *dir, char **name,
 	*type = dir->dirs[dir->cur_entry].type;
 	dir->cur_entry ++;
 
-	return TRUE;
+	return true;
 }
 
 static void squashfs_closedir(struct dir *dir)
@@ -972,7 +975,7 @@ static void squashfs_closedir(struct dir *dir)
 	free(dir);
 }
 
-static int read_super(struct PkgData *pdata, const char *source)
+static bool read_super(struct PkgData *pdata, const char *source)
 {
 	/*
 	 * Try to read a Squashfs 4 superblock
@@ -980,15 +983,15 @@ static int read_super(struct PkgData *pdata, const char *source)
 	if (!read_fs_bytes(pdata->fd, SQUASHFS_START,
 			sizeof(struct squashfs_super_block), &pdata->sBlk)) {
 		ERROR("Failed to read SQUASHFS superblock on %s\n", source);
-		return FALSE;
+		return false;
 	}
 
 	if(pdata->sBlk.s_magic == SQUASHFS_MAGIC && pdata->sBlk.s_major == 4 &&
 			pdata->sBlk.s_minor == 0) {
-		return TRUE;
+		return true;
 	} else {
 		ERROR("Invalid SQUASHFS superblock on %s\n", source);
-		return FALSE;
+		return false;
 	}
 }
 
@@ -1033,7 +1036,7 @@ static struct inode *get_inode(struct PkgData *pdata, const char *name)
 static struct cache_entry *reader(struct PkgData *pdata,
 			struct cache_entry *entry)
 {
-	int res = read_fs_bytes(pdata->fd, entry->block,
+	bool res = read_fs_bytes(pdata->fd, entry->block,
 			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
 			entry->data);
 
@@ -1047,7 +1050,7 @@ static void writer(struct PkgData *pdata,
 			struct file_entry *block, char *buf)
 {
 	long long hole = pdata->hole;
-	unsigned int sparse_file = !block->buffer;
+	bool sparse_file = !block->buffer;
 
 	if(sparse_file) {
 		hole += block->size;
