@@ -11,6 +11,7 @@ SONAME = $(LIBNAME).$(VERSION_MAJOR)
 LIBOPK = $(SONAME).$(VERSION_MINOR)
 
 CC = $(CROSS_COMPILE)gcc
+ANALYZER = clang --analyze
 INSTALL ?= install
 
 CFLAGS += -std=c99 -Wall -Wextra -fPIC \
@@ -24,12 +25,15 @@ endif
 
 OBJS = libopk.o unsqfs.o
 
-.PHONY: all clean install install-lib
+.PHONY: all analyze clean install install-lib
 
 all: $(LIBOPK)
 
 $(LIBOPK): $(OBJS)
 	$(CC) -shared -Wl,-soname,$(SONAME) -o $@ $^ $(LDFLAGS)
+
+analyze:
+	$(ANALYZER) $(CFLAGS) $(OBJS:%.o=%.c)
 
 install-lib: $(LIBOPK)
 	$(INSTALL) -D $(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(LIBOPK)
