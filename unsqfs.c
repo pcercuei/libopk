@@ -392,8 +392,6 @@ static bool read_fs_bytes(int fd, long long byte, int bytes, void *buff);
 static int read_block(struct PkgData *pdata,
 			long long start, long long *next, void *block);
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
-static bool reader(struct PkgData *pdata, struct cache_entry *entry);
-static bool deflator(struct PkgData *pdata, struct cache_entry *entry);
 
 
 static void read_block_list(unsigned int *block_list, char *block_ptr, int blocks)
@@ -688,8 +686,25 @@ static struct cache_entry *cache_get(struct PkgData *pdata,
 	entry->block = block;
 	entry->size = size;
 
-	if (!reader(pdata, entry)) {
+	if (!read_fs_bytes(pdata->fd, entry->block,
+			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
+			entry->data)) {
 		goto fail_free_data;
+	}
+
+	if (SQUASHFS_COMPRESSED_BLOCK(entry->size)) {
+		char tmp[pdata->sBlk.block_size];
+		int error, res;
+
+		res = squashfs_uncompress(pdata, tmp, entry->data,
+				SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
+				pdata->sBlk.block_size, &error);
+
+		if (res == -1) {
+			ERROR("Uncompress failed with error code %d\n", error);
+			goto fail_free_data;
+		}
+		memcpy(entry->data, tmp, res);
 	}
 
 	return entry;
@@ -1023,41 +1038,6 @@ static struct inode *get_inode(struct PkgData *pdata, const char *name)
 	return get_inode_from_dir(pdata, name,
 				SQUASHFS_INODE_BLK(pdata->sBlk.root_inode),
 				SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode));
-}
-
-static bool reader(struct PkgData *pdata, struct cache_entry *entry)
-{
-	if (!read_fs_bytes(pdata->fd, entry->block,
-			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
-			entry->data)) {
-		return false;
-	}
-
-	if (SQUASHFS_COMPRESSED_BLOCK(entry->size)) {
-		if (!deflator(pdata, entry)) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-static bool deflator(struct PkgData *pdata, struct cache_entry *entry)
-{
-	char tmp[pdata->sBlk.block_size];
-	int error, res;
-
-	res = squashfs_uncompress(pdata, tmp, entry->data,
-			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
-			pdata->sBlk.block_size, &error);
-
-	if (res == -1) {
-		ERROR("Uncompress failed with error code %d\n", error);
-		return false;
-	} else {
-		memcpy(entry->data, tmp, res);
-		return true;
-	}
 }
 
 const char *opk_sqfs_get_metadata(struct PkgData *pdata)
