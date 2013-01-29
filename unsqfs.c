@@ -637,59 +637,39 @@ static struct cache *cache_init()
 	return cache;
 }
 
-static struct cache_entry *cache_get(struct PkgData *pdata,
-			long long block, int size)
+static void *cache_get(struct PkgData *pdata, long long block, int size)
 {
-	/*
-	 * Get a block out of the cache.  If the block isn't in the cache
- 	 * it is added and queued to the reader() and deflate() threads for
- 	 * reading off disk and decompression.  The cache grows until max_blocks
- 	 * is reached, once this occurs existing discarded blocks on the free
- 	 * list are reused
- 	 */
-	struct cache_entry *entry;
-
-	entry = malloc(sizeof(struct cache_entry));
-	if (!entry) {
-		ERROR("Failed to allocate cache entry\n");
-		return NULL;
-	}
-	entry->data = malloc(pdata->sBlk.block_size);
-	if (!entry->data) {
+	void *data = malloc(pdata->sBlk.block_size);
+	if (!data) {
 		ERROR("Failed to allocate cache entry data\n");
-		goto fail_free_entry;
+		goto fail_exit;
 	}
 
-	entry->block = block;
-	entry->size = size;
-
-	if (!read_fs_bytes(pdata->fd, entry->block,
-			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
-			entry->data)) {
+	if (!read_fs_bytes(pdata->fd, block,
+			SQUASHFS_COMPRESSED_SIZE_BLOCK(size), data)) {
 		goto fail_free_data;
 	}
 
-	if (SQUASHFS_COMPRESSED_BLOCK(entry->size)) {
+	if (SQUASHFS_COMPRESSED_BLOCK(size)) {
 		char tmp[pdata->sBlk.block_size];
 		int error, res;
 
-		res = squashfs_uncompress(pdata, tmp, entry->data,
-				SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
+		res = squashfs_uncompress(pdata, tmp, data,
+				SQUASHFS_COMPRESSED_SIZE_BLOCK(size),
 				pdata->sBlk.block_size, &error);
 
 		if (res == -1) {
 			ERROR("Uncompress failed with error code %d\n", error);
 			goto fail_free_data;
 		}
-		memcpy(entry->data, tmp, res);
+		memcpy(data, tmp, res);
 	}
 
-	return entry;
+	return data;
 
 fail_free_data:
-	free(entry->data);
-fail_free_entry:
-	free(entry);
+	free(data);
+fail_exit:
 	return NULL;
 }
 
@@ -857,15 +837,14 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		if (csize == 0) { /* sparse file */
 			memset(buf, 0, size);
 		} else {
-			struct cache_entry *buffer = cache_get(pdata, start, csize);
-			if (!buffer) {
+			void *data = cache_get(pdata, start, csize);
+			if (!data) {
 				return false;
 			}
 			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(csize);
 
-			memcpy(buf, buffer->data, size);
-			free(buffer->data);
-			free(buffer);
+			memcpy(buf, data, size);
+			free(data);
 		}
 		buf += size;
 	}
@@ -876,15 +855,14 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		struct squashfs_fragment_entry *fragment_entry =
 				&pdata->fragment_table[inode->fragment];
 
-		struct cache_entry *buffer = cache_get(pdata,
+		void *data = cache_get(pdata,
 				fragment_entry->start_block, fragment_entry->size);
-		if (!buffer) {
+		if (!data) {
 			return false;
 		}
 
-		memcpy(buf, buffer->data + inode->offset, inode->frag_bytes);
-		free(buffer->data);
-		free(buffer);
+		memcpy(buf, data + inode->offset, inode->frag_bytes);
+		free(data);
 	}
 
 	return true;
