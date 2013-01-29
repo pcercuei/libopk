@@ -80,8 +80,9 @@
 
 /* Max number of types and file types */
 #define SQUASHFS_DIR_TYPE		1
-#define SQUASHFS_FILE_TYPE		2
+#define SQUASHFS_REG_TYPE		2
 #define SQUASHFS_LDIR_TYPE		8
+#define SQUASHFS_LREG_TYPE		9
 
 /* Flag whether block is compressed or uncompressed, bit is set if block is
  * uncompressed */
@@ -185,6 +186,23 @@ struct squashfs_reg_inode_header {
 	unsigned int		block_list[0];
 };
 
+struct squashfs_lreg_inode_header {
+	unsigned short		inode_type;
+	unsigned short		mode;
+	unsigned short		uid;
+	unsigned short		guid;
+	unsigned int		mtime;
+	unsigned int 		inode_number;
+	squashfs_block		start_block;
+	long long			file_size;
+	long long			sparse;
+	unsigned int		nlink;
+	unsigned int		fragment;
+	unsigned int		offset;
+	unsigned int		xattr;
+	unsigned int		block_list[0];
+};
+
 struct squashfs_dir_inode_header {
 	unsigned short		inode_type;
 	unsigned short		mode;
@@ -219,6 +237,7 @@ struct squashfs_ldir_inode_header {
 union squashfs_inode_header {
 	struct squashfs_base_inode_header	base;
 	struct squashfs_reg_inode_header	reg;
+	struct squashfs_lreg_inode_header	lreg;
 	struct squashfs_dir_inode_header	dir;
 	struct squashfs_ldir_inode_header	ldir;
 };
@@ -493,7 +512,17 @@ static struct inode *read_inode(struct PkgData *pdata,
 			i->start = inode->start_block;
 			break;
 		}
-		case SQUASHFS_FILE_TYPE: {
+		case SQUASHFS_LDIR_TYPE: {
+			struct squashfs_ldir_inode_header *inode = &header->ldir;
+
+			memcpy(inode, block_ptr, sizeof(*(inode)));
+
+			i->data = inode->file_size;
+			i->offset = inode->offset;
+			i->start = inode->start_block;
+			break;
+		}
+		case SQUASHFS_REG_TYPE: {
 			struct squashfs_reg_inode_header *inode = &header->reg;
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
@@ -512,14 +541,23 @@ static struct inode *read_inode(struct PkgData *pdata,
 			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
 		}
-		case SQUASHFS_LDIR_TYPE: {
-			struct squashfs_ldir_inode_header *inode = &header->ldir;
+		case SQUASHFS_LREG_TYPE: {
+			struct squashfs_lreg_inode_header *inode = &header->lreg;
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
 			i->data = inode->file_size;
+			i->frag_bytes = inode->fragment == SQUASHFS_INVALID_FRAG
+				?  0 : inode->file_size % pdata->sBlk.block_size;
+			i->fragment = inode->fragment;
 			i->offset = inode->offset;
+			i->blocks = inode->fragment == SQUASHFS_INVALID_FRAG ?
+				(i->data + pdata->sBlk.block_size - 1) >>
+				pdata->sBlk.block_log :
+				i->data >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
+			i->sparse = inode->sparse != 0;
+			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
 		}
 		default:
@@ -1115,7 +1153,7 @@ const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 	}
 
 	while(squashfs_readdir(pdata->dir, &n, &start_block, &offset, &type)) {
-		if(type != SQUASHFS_FILE_TYPE)
+		if (type != SQUASHFS_REG_TYPE && type != SQUASHFS_LREG_TYPE)
 			continue;
 
 		ptr = strrchr(n, '.');
