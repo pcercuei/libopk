@@ -336,12 +336,6 @@ struct dir {
 	struct dir_ent	*dirs;
 };
 
-struct file_entry {
-	int offset;
-	int size;
-	struct cache_entry *buffer;
-};
-
 struct path_entry {
 	char *name;
 	struct pathname *paths;
@@ -399,7 +393,6 @@ static int read_block(struct PkgData *pdata,
 			long long start, long long *next, void *block);
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
 static bool reader(struct PkgData *pdata, struct cache_entry *entry);
-static void writer(struct file_entry *block, char *buf);
 static bool deflator(struct PkgData *pdata, struct cache_entry *entry);
 
 
@@ -872,53 +865,42 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 	read_block_list(block_list, inode->block_ptr, inode->blocks);
 
 	for(i = 0; i < inode->blocks; i++) {
-		int c_byte = SQUASHFS_COMPRESSED_SIZE_BLOCK(block_list[i]);
 		int size =
 			  i == file_end
 			? inode->data & (pdata->sBlk.block_size - 1)
 			: pdata->sBlk.block_size;
-		struct file_entry *block = malloc(sizeof(struct file_entry));
 
-		if (!block) {
-			ERROR("Failed to allocate block\n");
-			goto fail_free_list;
-		}
-		block->offset = 0;
-		block->size = size;
-		if(block_list[i] == 0) /* sparse file */
-			block->buffer = NULL;
-		else {
-			block->buffer = cache_get(pdata, pdata->data_cache,
-						start, block_list[i]);
-			if (!block->buffer) {
-				free(block);
+		if (block_list[i] == 0) { /* sparse file */
+			memset(buf, 0, size);
+		} else {
+			struct cache_entry *buffer =
+					cache_get(pdata, pdata->data_cache, start, block_list[i]);
+			if (!buffer) {
 				goto fail_free_list;
 			}
-			start += c_byte;
-		}
+			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(block_list[i]);
 
-		writer(block, buf);
+			memcpy(buf, buffer->data, size);
+			free(buffer->data);
+			free(buffer);
+		}
 		buf += size;
 	}
 
-	if(inode->frag_bytes) {
+	if (inode->frag_bytes) {
 		int size;
 		long long start;
-		struct file_entry *block = malloc(sizeof(struct file_entry));
-
-		if (!block) {
-			ERROR("Failed to allocate fragment block\n");
-			goto fail_free_list;
-		}
 		read_fragment(pdata, inode->fragment, &start, &size);
-		block->buffer = cache_get(pdata, pdata->fragment_cache, start, size);
-		if (!block->buffer) {
-			free(block);
+
+		struct cache_entry *buffer =
+				cache_get(pdata, pdata->fragment_cache, start, size);
+		if (!buffer) {
 			goto fail_free_list;
 		}
-		block->offset = inode->offset;
-		block->size = inode->frag_bytes;
-		writer(block, buf);
+
+		memcpy(buf, buffer->data + inode->offset, inode->frag_bytes);
+		free(buffer->data);
+		free(buffer);
 	}
 
 	free(block_list);
@@ -1058,19 +1040,6 @@ static bool reader(struct PkgData *pdata, struct cache_entry *entry)
 	}
 
 	return true;
-}
-
-static void writer(struct file_entry *block, char *buf)
-{
-	if (block->buffer) {
-		memcpy(buf, block->buffer->data + block->offset, block->size);
-		free(block->buffer->data);
-		free(block->buffer);
-	} else {
-		/* sparse file */
-		memset(buf, 0, block->size);
-	}
-	free(block);
 }
 
 static bool deflator(struct PkgData *pdata, struct cache_entry *entry)
