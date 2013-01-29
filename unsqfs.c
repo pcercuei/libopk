@@ -298,7 +298,6 @@ struct inode {
 	long long start;
 	time_t time;
 	int type;
-	char sparse;
 };
 
 /* Cache status struct */
@@ -375,7 +374,6 @@ struct PkgData {
 	struct inode inode;
 
 	struct squashfs_file *file;
-	long long hole;
 
 	struct squashfs_fragment_entry *fragment_table;
 	struct cache *fragment_cache, *data_cache;
@@ -384,7 +382,6 @@ struct PkgData {
 
 	int fd;
 	char *inode_table, *directory_table;
-	unsigned int cur_blocks;
 
 	struct dir *dir;
 };
@@ -414,8 +411,7 @@ static int read_block(struct PkgData *pdata,
 			long long start, long long *next, void *block);
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
 static bool reader(struct PkgData *pdata, struct cache_entry *entry);
-static void writer(struct PkgData *pdata,
-			struct file_entry *block, char *buf);
+static void writer(struct file_entry *block, char *buf);
 static bool deflator(struct PkgData *pdata, struct cache_entry *entry);
 
 
@@ -537,7 +533,6 @@ static struct inode *read_inode(struct PkgData *pdata,
 				pdata->sBlk.block_log :
 				i->data >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
-			i->sparse = 0;
 			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
 		}
@@ -556,7 +551,6 @@ static struct inode *read_inode(struct PkgData *pdata,
 				pdata->sBlk.block_log :
 				i->data >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
-			i->sparse = inode->sparse != 0;
 			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
 		}
@@ -872,25 +866,6 @@ static bool uncompress_inode_table(struct PkgData *pdata)
 	return true;
 }
 
-static void write_block(struct PkgData *pdata, char *buf_in,
-			int size, long long hole, bool sparse, char *buf_out)
-{
-	unsigned int block_size = pdata->sBlk.block_size;
-
-	if (hole && !sparse) {
-		int avail_bytes, i;
-		int blocks = (hole + block_size -1) / block_size;
-
-		for(i = 0; i < blocks; i++, hole -= avail_bytes) {
-			avail_bytes = hole > block_size ? block_size : hole;
-			memset(buf_out, 0, avail_bytes);
-			buf_out += avail_bytes;
-		}
-	}
-
-	memcpy(buf_out, buf_in, size);
-}
-
 static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 {
 	int i;
@@ -899,7 +874,6 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 	long long start = inode->start;
 
 	TRACE("write_buf: regular file, blocks %d\n", inode->blocks);
-	pdata->cur_blocks = inode->blocks + (inode->frag_bytes > 0);
 
 	block_list = malloc(inode->blocks * sizeof(unsigned int));
 	if (!block_list) {
@@ -935,7 +909,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 			start += c_byte;
 		}
 
-		writer(pdata, block, buf);
+		writer(block, buf);
 		buf += size;
 	}
 
@@ -956,7 +930,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		}
 		block->offset = inode->offset;
 		block->size = inode->frag_bytes;
-		writer(pdata, block, buf);
+		writer(block, buf);
 	}
 
 	free(block_list);
@@ -1098,25 +1072,17 @@ static bool reader(struct PkgData *pdata, struct cache_entry *entry)
 	return true;
 }
 
-static void writer(struct PkgData *pdata,
-			struct file_entry *block, char *buf)
+static void writer(struct file_entry *block, char *buf)
 {
-	long long hole = pdata->hole;
-	bool sparse_file = !block->buffer;
-
-	if(sparse_file) {
-		hole += block->size;
+	if (block->buffer) {
+		memcpy(buf, block->buffer->data + block->offset, block->size);
+		free(block->buffer->data);
+		free(block->buffer);
 	} else {
-		write_block(pdata, block->buffer->data + block->offset,
-					block->size, hole, sparse_file, buf);
+		/* sparse file */
+		memset(buf, 0, block->size);
 	}
-
-	free(block->buffer->data);
-	free(block->buffer);
 	free(block);
-
-	if (!--pdata->cur_blocks)
-		hole = 0;
 }
 
 static bool deflator(struct PkgData *pdata, struct cache_entry *entry)
