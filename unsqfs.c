@@ -394,12 +394,10 @@ static bool read_fs_bytes(int fd, long long byte, int bytes, void *buff);
 static int read_block(struct PkgData *pdata,
 			long long start, long long *next, void *block);
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
-static struct cache_entry *reader(struct PkgData *pdata,
-			struct cache_entry *entry);
+static bool reader(struct PkgData *pdata, struct cache_entry *entry);
 static void writer(struct PkgData *pdata,
 			struct file_entry *block, char *buf);
-static struct cache_entry *deflator(struct PkgData *pdata,
-			struct cache_entry *entry);
+static bool deflator(struct PkgData *pdata, struct cache_entry *entry);
 
 
 static void read_block_list(unsigned int *block_list, char *block_ptr, int blocks)
@@ -670,15 +668,24 @@ static struct cache_entry *cache_get(struct PkgData *pdata,
 	entry->data = malloc(cache->buffer_size);
 	if (!entry->data) {
 		ERROR("Failed to allocate cache entry data\n");
-		free(entry);
-		return NULL;
+		goto fail_free_entry;
 	}
 
 	entry->cache = cache;
 	entry->block = block;
 	entry->size = size;
 
-	return reader(pdata, entry);
+	if (!reader(pdata, entry)) {
+		goto fail_free_data;
+	}
+
+	return entry;
+
+fail_free_data:
+	free(entry->data);
+fail_free_entry:
+	free(entry);
+	return NULL;
 }
 
 static bool add_entry(struct hash_table_entry *hash_table[], long long start,
@@ -1033,17 +1040,21 @@ static struct inode *get_inode(struct PkgData *pdata, const char *name)
 				SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode));
 }
 
-static struct cache_entry *reader(struct PkgData *pdata,
-			struct cache_entry *entry)
+static bool reader(struct PkgData *pdata, struct cache_entry *entry)
 {
-	bool res = read_fs_bytes(pdata->fd, entry->block,
+	if (!read_fs_bytes(pdata->fd, entry->block,
 			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
-			entry->data);
+			entry->data)) {
+		return false;
+	}
 
-	if(res && SQUASHFS_COMPRESSED_BLOCK(entry->size))
-		deflator(pdata, entry);
+	if (SQUASHFS_COMPRESSED_BLOCK(entry->size)) {
+		if (!deflator(pdata, entry)) {
+			return false;
+		}
+	}
 
-	return entry;
+	return true;
 }
 
 static void writer(struct PkgData *pdata,
@@ -1067,8 +1078,7 @@ static void writer(struct PkgData *pdata,
 		hole = 0;
 }
 
-static struct cache_entry *deflator(struct PkgData *pdata,
-			struct cache_entry *entry)
+static bool deflator(struct PkgData *pdata, struct cache_entry *entry)
 {
 	char tmp[pdata->sBlk.block_size];
 	int error, res;
@@ -1077,12 +1087,13 @@ static struct cache_entry *deflator(struct PkgData *pdata,
 			SQUASHFS_COMPRESSED_SIZE_BLOCK(entry->size),
 			pdata->sBlk.block_size, &error);
 
-	if(res == -1)
-		ERROR("uncompress failed with error code %d\n", error);
-	else
+	if (res == -1) {
+		ERROR("Uncompress failed with error code %d\n", error);
+		return false;
+	} else {
 		memcpy(entry->data, tmp, res);
-
-	return entry;
+		return true;
+	}
 }
 
 const char *opk_sqfs_get_metadata(struct PkgData *pdata)
