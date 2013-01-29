@@ -288,7 +288,7 @@ struct hash_table_entry {
 
 struct inode {
 	int blocks;
-	char *block_ptr;
+	unsigned int *block_ptr;
 	long long data;
 	int fragment;
 	int frag_bytes;
@@ -394,13 +394,6 @@ static int read_block(struct PkgData *pdata,
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
 
 
-static void read_block_list(unsigned int *block_list, char *block_ptr, int blocks)
-{
-	TRACE("read_block_list: blocks %d\n", blocks);
-
-	memcpy(block_list, block_ptr, blocks * sizeof(unsigned int));
-}
-
 static bool read_fragment_table(struct PkgData *pdata)
 {
 	int i, indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
@@ -460,7 +453,7 @@ static struct inode *read_inode(struct PkgData *pdata,
 	struct inode *i = &pdata->inode;
 	long long start = pdata->sBlk.inode_table_start + start_block;
 	int bytes = lookup_entry(pdata->inode_table_hash, start);
-	char *block_ptr = pdata->inode_table + bytes + offset;
+	void *block_ptr = pdata->inode_table + bytes + offset;
 
 	TRACE("read_inode: reading inode [%d:%d]\n", start_block,  offset);
 
@@ -865,35 +858,27 @@ static bool uncompress_inode_table(struct PkgData *pdata)
 static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 {
 	int i;
-	unsigned int *block_list;
 	int file_end = inode->data / pdata->sBlk.block_size;
 	long long start = inode->start;
 
 	TRACE("write_buf: regular file, blocks %d\n", inode->blocks);
 
-	block_list = malloc(inode->blocks * sizeof(unsigned int));
-	if (!block_list) {
-		ERROR("Failed to allocate block list\n");
-		goto fail_exit;
-	}
-
-	read_block_list(block_list, inode->block_ptr, inode->blocks);
-
 	for(i = 0; i < inode->blocks; i++) {
+		unsigned int csize = inode->block_ptr[i];
 		int size =
 			  i == file_end
 			? inode->data & (pdata->sBlk.block_size - 1)
 			: pdata->sBlk.block_size;
 
-		if (block_list[i] == 0) { /* sparse file */
+		if (csize == 0) { /* sparse file */
 			memset(buf, 0, size);
 		} else {
 			struct cache_entry *buffer =
-					cache_get(pdata, pdata->data_cache, start, block_list[i]);
+					cache_get(pdata, pdata->data_cache, start, csize);
 			if (!buffer) {
-				goto fail_free_list;
+				return false;
 			}
-			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(block_list[i]);
+			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(csize);
 
 			memcpy(buf, buffer->data, size);
 			free(buffer->data);
@@ -910,7 +895,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		struct cache_entry *buffer =
 				cache_get(pdata, pdata->fragment_cache, start, size);
 		if (!buffer) {
-			goto fail_free_list;
+			return false;
 		}
 
 		memcpy(buf, buffer->data + inode->offset, inode->frag_bytes);
@@ -918,13 +903,7 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		free(buffer);
 	}
 
-	free(block_list);
 	return true;
-
-fail_free_list:
-	free(block_list);
-fail_exit:
-	return false;
 }
 
 static bool uncompress_directory_table(struct PkgData *pdata)
