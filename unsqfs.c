@@ -475,26 +475,26 @@ static struct inode *read_inode(struct PkgData *pdata,
 }
 
 static struct dir *squashfs_opendir(struct PkgData *pdata,
-			unsigned int block_start, unsigned int offset, struct inode **i)
+			unsigned int block_start, unsigned int offset)
 {
 	TRACE("squashfs_opendir: inode start block %d, offset %d\n",
 		block_start, offset);
 
-	*i = read_inode(pdata, block_start, offset);
-	if (!*i) {
+	struct inode *i = read_inode(pdata, block_start, offset);
+	if (!i) {
 		ERROR("Failed to read directory inode\n");
 		return NULL;
 	}
 
 	int bytes = lookup_entry(pdata->directory_table_hash,
-			pdata->sBlk.directory_table_start + (*i)->start);
+			pdata->sBlk.directory_table_start + i->start);
 	if (bytes == -1) {
 		ERROR("Failed to open directory: block %d not found\n", block_start);
 		return NULL;
 	}
 
-	bytes += (*i)->offset;
-	const int size = (*i)->data + bytes - 3;
+	bytes += i->offset;
+	const int size = i->data + bytes - 3;
 
 	struct dir *dir = malloc(sizeof(struct dir));
 	if (!dir) {
@@ -861,13 +861,12 @@ static bool read_super(struct PkgData *pdata, const char *source)
 static struct inode *get_inode_from_dir(struct PkgData *pdata,
 			const char *name, unsigned int start_block, unsigned int offset)
 {
-	struct inode *i;
-	struct dir *dir = squashfs_opendir(pdata, start_block, offset, &i);
+	struct dir *dir = squashfs_opendir(pdata, start_block, offset);
 	if (!dir) {
 		return NULL;
 	}
 
-	i = NULL;
+	struct inode *i = NULL;
 	unsigned int type;
 	char *n;
 	while(squashfs_readdir(dir, &n, &start_block, &offset, &type)) {
@@ -897,9 +896,8 @@ const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 	unsigned int start_block = SQUASHFS_INODE_BLK(pdata->sBlk.root_inode);
 	unsigned int offset = SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode);
 
-	struct inode *i;
 	if (!pdata->dir) {
-		pdata->dir = squashfs_opendir(pdata, start_block, offset, &i);
+		pdata->dir = squashfs_opendir(pdata, start_block, offset);
 		if (!pdata->dir) {
 			return NULL;
 		}
