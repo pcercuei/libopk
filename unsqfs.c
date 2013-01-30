@@ -637,30 +637,41 @@ static struct cache *cache_init()
 	return cache;
 }
 
-static bool read_data_block(struct PkgData *pdata, void *data,
+static bool read_data_block(struct PkgData *pdata, void *buf, int buf_size,
 		long long block, int size)
 {
-	if (!read_fs_bytes(pdata->fd, block,
-			SQUASHFS_COMPRESSED_SIZE_BLOCK(size), data)) {
-		return false;
-	}
+	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(size);
+	if (SQUASHFS_COMPRESSED_BLOCK(size)) { // compressed block
+		if (csize >= buf_size) {
+			// In the case compression doesn't make a block smaller,
+			// mksquashfs will store the block uncompressed.
+			ERROR("Refusing to load too-large compressed block\n");
+			return false;
+		}
 
-	if (SQUASHFS_COMPRESSED_BLOCK(size)) {
-		char tmp[pdata->sBlk.block_size];
-		int error, res;
+		// Load compressed data into temporary buffer.
+		char tmp[csize];
+		if (!read_fs_bytes(pdata->fd, block, sizeof(tmp), tmp)) {
+			return false;
+		}
 
-		res = squashfs_uncompress(pdata, tmp, data,
-				SQUASHFS_COMPRESSED_SIZE_BLOCK(size),
-				pdata->sBlk.block_size, &error);
-
+		int error, res = squashfs_uncompress(
+				pdata, buf, tmp, sizeof(tmp), buf_size, &error);
 		if (res == -1) {
 			ERROR("Uncompress failed with error code %d\n", error);
 			return false;
 		}
-		memcpy(data, tmp, res);
-	}
 
-	return true;
+		return true;
+
+	} else { // uncompressed block
+		if (csize != buf_size) {
+			ERROR("Refusing to load size-mismatched uncompressed block\n");
+			return false;
+		}
+
+		return read_fs_bytes(pdata->fd, block, buf_size, buf);
+	}
 }
 
 static bool add_entry(struct hash_table_entry *hash_table[], long long start,
@@ -813,12 +824,6 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 {
 	TRACE("write_buf: regular file, blocks %d\n", inode->blocks);
 
-	void *data = malloc(pdata->sBlk.block_size);
-	if (!data) {
-		ERROR("Failed to allocate block data buffer\n");
-		return false;
-	}
-
 	const int file_end = inode->data / pdata->sBlk.block_size;
 	long long start = inode->start;
 	for (int i = 0; i < inode->blocks; i++) {
@@ -828,15 +833,13 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 			? inode->data & (pdata->sBlk.block_size - 1)
 			: pdata->sBlk.block_size;
 
-		if (csize == 0) { /* sparse file */
+		if (csize == 0) { // sparse file
 			memset(buf, 0, size);
 		} else {
-			if (!read_data_block(pdata, data, start, csize)) {
-				goto fail_free_data;
+			if (!read_data_block(pdata, buf, size, start, csize)) {
+				return false;
 			}
 			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(csize);
-
-			memcpy(buf, data, size);
 		}
 		buf += size;
 	}
@@ -847,20 +850,23 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
 		struct squashfs_fragment_entry *fragment_entry =
 				&pdata->fragment_table[inode->fragment];
 
-		if (!read_data_block(pdata, data,
+		void *data = malloc(pdata->sBlk.block_size);
+		if (!data) {
+			ERROR("Failed to allocate block data buffer\n");
+			return false;
+		}
+
+		if (!read_data_block(pdata, data, pdata->sBlk.block_size,
 				fragment_entry->start_block, fragment_entry->size)) {
-			goto fail_free_data;
+			free(data);
+			return false;
 		}
 
 		memcpy(buf, data + inode->offset, inode->frag_bytes);
+		free(data);
 	}
 
-	free(data);
 	return true;
-
-fail_free_data:
-	free(data);
-	return false;
 }
 
 static bool uncompress_directory_table(struct PkgData *pdata)
