@@ -62,7 +62,6 @@
 
 #include "unsqfs.h"
 
-#define SQUASHFS_CACHED_FRAGMENTS	CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE
 #define SQUASHFS_MAGIC			0x73717368
 #define SQUASHFS_START			0
 
@@ -300,18 +299,6 @@ struct inode {
 	int type;
 };
 
-/* Cache status struct */
-struct cache {
-	struct cache_entry *hash_table[65536];
-};
-
-/* struct describing a cache entry */
-struct cache_entry {
-	long long block;
-	int	size;
-	char *data;
-};
-
 /* default size of fragment buffer in Mbytes */
 #define FRAGMENT_BUFFER_DEFAULT 256
 /* default size of data buffer in Mbytes */
@@ -356,7 +343,6 @@ struct PkgData {
 	struct inode inode;
 
 	struct squashfs_fragment_entry *fragment_table;
-	struct cache *fragment_cache, *data_cache;
 	struct hash_table_entry *inode_table_hash[65536],
 							*directory_table_hash[65536];
 
@@ -624,17 +610,6 @@ static int squashfs_uncompress(struct PkgData *pdata,
 #endif
 	*error = -EINVAL;
 	return -1;
-}
-
-static struct cache *cache_init()
-{
-	struct cache *cache = malloc(sizeof(struct cache));
-
-	if (cache) {
-		memset(cache->hash_table, 0, sizeof(struct cache_entry *) * 65536);
-	}
-
-	return cache;
 }
 
 static bool read_data_block(struct PkgData *pdata, void *buf, int buf_size,
@@ -1031,15 +1006,6 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		goto fail_close;
 	}
 
-	if (!(pdata->fragment_cache = cache_init())) {
-		ERROR("Failed to allocate fragment cache\n");
-		goto fail_close;
-	}
-	if (!(pdata->data_cache = cache_init())) {
-		ERROR("Failed to allocate data cache\n");
-		goto fail_close;
-	}
-
 	if (!read_fragment_table(pdata)) {
 		ERROR("Failed to read fragment table\n");
 		goto fail_close;
@@ -1060,8 +1026,6 @@ fail_free:
 	free(pdata->inode_table);
 	free(pdata->directory_table);
 	free(pdata->fragment_table);
-	free(pdata->fragment_cache);
-	free(pdata->data_cache);
 	free(pdata);
 fail_exit:
 	return NULL;
@@ -1077,8 +1041,6 @@ void opk_sqfs_close(struct PkgData *pdata)
 	free(pdata->inode_table);
 	free(pdata->directory_table);
 	free(pdata->fragment_table);
-	free(pdata->fragment_cache);
-	free(pdata->data_cache);
 	free(pdata);
 }
 
