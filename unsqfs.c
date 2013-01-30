@@ -293,11 +293,6 @@ struct inode {
 	long long start;
 };
 
-/* default size of fragment buffer in Mbytes */
-#define FRAGMENT_BUFFER_DEFAULT 256
-/* default size of data buffer in Mbytes */
-#define DATA_BUFFER_DEFAULT 256
-
 #define DIR_ENT_SIZE	16
 
 struct dir_ent	{
