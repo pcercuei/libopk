@@ -38,8 +38,6 @@
  *    LDFLAGS += -lz -llzo2
  */
 
-#define _XOPEN_SOURCE 600
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -291,12 +289,8 @@ struct inode {
 	long long data;
 	int fragment;
 	int frag_bytes;
-	int inode_number;
-	int mode;
 	int offset;
 	long long start;
-	time_t time;
-	int type;
 };
 
 /* default size of fragment buffer in Mbytes */
@@ -316,8 +310,6 @@ struct dir_ent	{
 struct dir {
 	int		dir_count;
 	int 		cur_entry;
-	unsigned int	mode;
-	unsigned int	mtime;
 	struct dir_ent	*dirs;
 };
 
@@ -350,24 +342,6 @@ struct PkgData {
 	void *inode_table, *directory_table;
 
 	struct dir *dir;
-};
-
-static const int lookup_type[] = {
-	0,
-	S_IFDIR,
-	S_IFREG,
-	S_IFLNK,
-	S_IFBLK,
-	S_IFCHR,
-	S_IFIFO,
-	S_IFSOCK,
-	S_IFDIR,
-	S_IFREG,
-	S_IFLNK,
-	S_IFBLK,
-	S_IFCHR,
-	S_IFIFO,
-	S_IFSOCK
 };
 
 
@@ -435,10 +409,6 @@ static struct inode *read_inode(struct PkgData *pdata,
 	memcpy(&header->base, block_ptr, sizeof(*(&header->base)));
 
 	struct inode *i = &pdata->inode;
-	i->mode = lookup_type[header->base.inode_type] | header->base.mode;
-	i->type = header->base.inode_type;
-	i->time = header->base.mtime;
-	i->inode_number = header->base.inode_number;
 
 	switch(header->base.inode_type) {
 		case SQUASHFS_DIR_TYPE: {
@@ -534,8 +504,6 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 
 	dir->dir_count = 0;
 	dir->cur_entry = 0;
-	dir->mode = (*i)->mode;
-	dir->mtime = (*i)->time;
 	dir->dirs = NULL;
 
 	char buffer[sizeof(struct squashfs_dir_entry) + SQUASHFS_NAME_LEN + 1]
