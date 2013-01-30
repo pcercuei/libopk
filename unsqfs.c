@@ -99,11 +99,21 @@
 
 /*
  * Inode number ops.  Inodes consist of a compressed block number, and an
- * uncompressed  offset within that block
+ * uncompressed offset within that block.
  */
-#define SQUASHFS_INODE_BLK(a)		((unsigned int) ((a) >> 16))
-
-#define SQUASHFS_INODE_OFFSET(a)	((unsigned int) ((a) & 0xffff))
+static inline unsigned short inode_block(unsigned int inode_nr)
+{
+	return inode_nr >> 16;
+}
+static inline unsigned short inode_offset(unsigned int inode_nr)
+{
+	return inode_nr & 0xffff;
+}
+static inline unsigned int inode_number(
+		unsigned short block, unsigned short offset)
+{
+	return ((unsigned int)block << 16) | offset;
+}
 
 /* fragment and fragment table defines */
 #define SQUASHFS_FRAGMENT_BYTES(A)	((A) * sizeof(struct squashfs_fragment_entry))
@@ -295,10 +305,9 @@ struct inode {
 
 #define DIR_ENT_SIZE	16
 
-struct dir_ent	{
+struct dir_ent {
 	char		name[SQUASHFS_NAME_LEN + 1];
-	unsigned int	start_block;
-	unsigned int	offset;
+	unsigned int	inode_nr;
 	unsigned int	type;
 };
 
@@ -388,18 +397,19 @@ static bool read_fragment_table(struct PkgData *pdata)
 }
 
 static struct inode *read_inode(struct PkgData *pdata,
-			unsigned int start_block, unsigned int offset)
+			unsigned int inode_nr)
 {
-	TRACE("read_inode: reading inode [%d:%d]\n", start_block,  offset);
+	TRACE("read_inode: reading inode %08X\n", inode_nr);
 
-	const long long start = pdata->sBlk.inode_table_start + start_block;
+	const long long start =
+			pdata->sBlk.inode_table_start + inode_block(inode_nr);
 	const int bytes = lookup_entry(pdata->inode_table_hash, start);
 	if (bytes == -1) {
 		ERROR("Inode table block %lld not found\n", start);
 		return NULL;
 	}
 
-	void *block_ptr = pdata->inode_table + bytes + offset;
+	void *block_ptr = pdata->inode_table + bytes + inode_offset(inode_nr);
 	union squashfs_inode_header *header = &pdata->header;
 	memcpy(&header->base, block_ptr, sizeof(*(&header->base)));
 
@@ -470,21 +480,20 @@ static struct inode *read_inode(struct PkgData *pdata,
 }
 
 static struct dir *squashfs_opendir(struct PkgData *pdata,
-			unsigned int block_start, unsigned int offset)
+			unsigned int inode_nr)
 {
-	TRACE("squashfs_opendir: inode start block %d, offset %d\n",
-		block_start, offset);
+	TRACE("squashfs_opendir: inode %08X\n", inode_nr);
 
-	struct inode *i = read_inode(pdata, block_start, offset);
+	struct inode *i = read_inode(pdata, inode_nr);
 	if (!i) {
-		ERROR("Failed to read directory inode\n");
+		ERROR("Failed to read directory inode %08X\n", inode_nr);
 		return NULL;
 	}
 
-	int bytes = lookup_entry(pdata->directory_table_hash,
-			pdata->sBlk.directory_table_start + i->start);
+	long long block = pdata->sBlk.directory_table_start + i->start;
+	int bytes = lookup_entry(pdata->directory_table_hash, block);
 	if (bytes == -1) {
-		ERROR("Failed to open directory: block %d not found\n", block_start);
+		ERROR("Failed to open directory: block %lld not found\n", block);
 		return NULL;
 	}
 
@@ -537,9 +546,8 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 				dir->dirs = new_dir;
 			}
 			strcpy(dir->dirs[dir->dir_count].name, dire->name);
-			dir->dirs[dir->dir_count].start_block =
-				dirh.start_block;
-			dir->dirs[dir->dir_count].offset = dire->offset;
+			dir->dirs[dir->dir_count].inode_nr =
+					inode_number(dirh.start_block, dire->offset);
 			dir->dirs[dir->dir_count].type = dire->type;
 			dir->dir_count ++;
 			bytes += dire->size + 1;
@@ -810,15 +818,14 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 }
 
 static bool squashfs_readdir(struct dir *dir, char **name,
-			unsigned int *start_block, unsigned int *offset, unsigned int *type)
+		unsigned int *inode_nr, unsigned int *type)
 {
 	if (dir->cur_entry == dir->dir_count) {
 		return false;
 	}
 
 	*name = dir->dirs[dir->cur_entry].name;
-	*start_block = dir->dirs[dir->cur_entry].start_block;
-	*offset = dir->dirs[dir->cur_entry].offset;
+	*inode_nr = dir->dirs[dir->cur_entry].inode_nr;
 	*type = dir->dirs[dir->cur_entry].type;
 	dir->cur_entry ++;
 
@@ -854,9 +861,9 @@ static bool read_super(struct PkgData *pdata, const char *source)
 // TODO: There is currently no way to tell apart "no such file" from other
 //       errors such as allocation failures.
 static struct inode *get_inode_from_dir(struct PkgData *pdata,
-			const char *name, unsigned int start_block, unsigned int offset)
+			const char *name, unsigned int inode_nr)
 {
-	struct dir *dir = squashfs_opendir(pdata, start_block, offset);
+	struct dir *dir = squashfs_opendir(pdata, inode_nr);
 	if (!dir) {
 		return NULL;
 	}
@@ -864,12 +871,12 @@ static struct inode *get_inode_from_dir(struct PkgData *pdata,
 	struct inode *i = NULL;
 	unsigned int type;
 	char *n;
-	while(squashfs_readdir(dir, &n, &start_block, &offset, &type)) {
-		if(type == SQUASHFS_DIR_TYPE)
-			i = get_inode_from_dir(pdata, name, start_block, offset);
-
-		else if (!strcmp(n, name))
-			i = read_inode(pdata, start_block, offset);
+	while (squashfs_readdir(dir, &n, &inode_nr, &type)) {
+		if (type == SQUASHFS_DIR_TYPE) {
+			i = get_inode_from_dir(pdata, name, inode_nr);
+		} else if (!strcmp(n, name)) {
+			i = read_inode(pdata, inode_nr);
+		}
 
 		if (i)
 			break;
@@ -879,28 +886,19 @@ static struct inode *get_inode_from_dir(struct PkgData *pdata,
 	return i;
 }
 
-static struct inode *get_inode(struct PkgData *pdata, const char *name)
-{
-	return get_inode_from_dir(pdata, name,
-				SQUASHFS_INODE_BLK(pdata->sBlk.root_inode),
-				SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode));
-}
-
 const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 {
-	unsigned int start_block = SQUASHFS_INODE_BLK(pdata->sBlk.root_inode);
-	unsigned int offset = SQUASHFS_INODE_OFFSET(pdata->sBlk.root_inode);
-
 	if (!pdata->dir) {
-		pdata->dir = squashfs_opendir(pdata, start_block, offset);
+		pdata->dir = squashfs_opendir(pdata, pdata->sBlk.root_inode);
 		if (!pdata->dir) {
 			return NULL;
 		}
 	}
 
+	unsigned int inode_nr = pdata->sBlk.root_inode;
 	unsigned int type;
 	char *n;
-	while(squashfs_readdir(pdata->dir, &n, &start_block, &offset, &type)) {
+	while(squashfs_readdir(pdata->dir, &n, &inode_nr, &type)) {
 		if (type != SQUASHFS_REG_TYPE && type != SQUASHFS_LREG_TYPE)
 			continue;
 
@@ -981,7 +979,7 @@ void opk_sqfs_close(struct PkgData *pdata)
 
 void *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
 {
-	struct inode *i = get_inode(pdata, name);
+	struct inode *i = get_inode_from_dir(pdata, name, pdata->sBlk.root_inode);
 	if (!i) {
 		ERROR("Unable to find inode for path \"%s\"\n", name);
 		return NULL;
