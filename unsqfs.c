@@ -373,7 +373,7 @@ static const int lookup_type[] = {
 
 /* forward delcarations */
 static bool read_fs_bytes(int fd, long long byte, int bytes, void *buff);
-static int read_block(struct PkgData *pdata,
+static int read_metadata_block(struct PkgData *pdata,
 			long long start, long long *next, void *block);
 static int lookup_entry(struct hash_table_entry *hash_table[], long long start);
 
@@ -405,7 +405,7 @@ static bool read_fragment_table(struct PkgData *pdata)
 	}
 
 	for (int i = 0; i < indexes; i++) {
-		int length = read_block(pdata, fragment_table_index[i], NULL,
+		int length = read_metadata_block(pdata, fragment_table_index[i], NULL,
 			((void *) pdata->fragment_table) + (i * SQUASHFS_METADATA_SIZE));
 		TRACE("Read fragment table block %d, from 0x%llx, length %d\n",
 			i, fragment_table_index[i], length);
@@ -707,8 +707,8 @@ static bool read_fs_bytes(int fd, long long byte, int bytes, void *buff)
 	return true;
 }
 
-static int read_block(struct PkgData *pdata,
-			long long start, long long *next, void *block)
+static int read_metadata_block(struct PkgData *pdata,
+		long long start, long long *next, void *block)
 {
 	unsigned short c_byte;
 	int offset = 2;
@@ -718,7 +718,7 @@ static int read_block(struct PkgData *pdata,
 		goto failed;
 	}
 
-	TRACE("read_block: block @0x%llx, %d %s bytes\n", start,
+	TRACE("read_metadata_block: block @0x%llx, %d %s bytes\n", start,
 		SQUASHFS_COMPRESSED_SIZE(c_byte), SQUASHFS_COMPRESSED(c_byte) ?
 		"compressed" : "uncompressed");
 
@@ -751,7 +751,7 @@ static int read_block(struct PkgData *pdata,
 	}
 
 failed:
-	ERROR("read_block: failed to read block @0x%llx\n", start);
+	ERROR("read_metadata_block: failed to read block @0x%llx\n", start);
 	return 0;
 }
 
@@ -781,7 +781,7 @@ static bool uncompress_table(struct PkgData *pdata,
 			table_data = new_data;
 		}
 
-		int res = read_block(pdata, curr, &curr, table_data + bytes);
+		int res = read_metadata_block(pdata, curr, &curr, table_data + bytes);
 		if (res == 0) {
 			ERROR("Failed to read table block\n");
 			goto fail_free;
