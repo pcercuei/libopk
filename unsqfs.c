@@ -817,19 +817,13 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 	return true;
 }
 
-static bool squashfs_readdir(struct dir *dir, char **name,
-		unsigned int *inode_nr, unsigned int *type)
+static struct dir_ent *squashfs_dir_next(struct dir *dir)
 {
 	if (dir->cur_entry == dir->dir_count) {
-		return false;
+		return NULL;
+	} else {
+		return &dir->dirs[dir->cur_entry++];
 	}
-
-	*name = dir->dirs[dir->cur_entry].name;
-	*inode_nr = dir->dirs[dir->cur_entry].inode_nr;
-	*type = dir->dirs[dir->cur_entry].type;
-	dir->cur_entry ++;
-
-	return true;
 }
 
 static void squashfs_closedir(struct dir *dir)
@@ -869,13 +863,12 @@ static struct inode *get_inode_from_dir(struct PkgData *pdata,
 	}
 
 	struct inode *i = NULL;
-	unsigned int type;
-	char *n;
-	while (squashfs_readdir(dir, &n, &inode_nr, &type)) {
-		if (type == SQUASHFS_DIR_TYPE) {
-			i = get_inode_from_dir(pdata, name, inode_nr);
-		} else if (!strcmp(n, name)) {
-			i = read_inode(pdata, inode_nr);
+	struct dir_ent *ent;
+	while ((ent = squashfs_dir_next(dir))) {
+		if (ent->type == SQUASHFS_DIR_TYPE) {
+			i = get_inode_from_dir(pdata, name, ent->inode_nr);
+		} else if (!strcmp(ent->name, name)) {
+			i = read_inode(pdata, ent->inode_nr);
 		}
 
 		if (i)
@@ -895,16 +888,14 @@ const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 		}
 	}
 
-	unsigned int inode_nr = pdata->sBlk.root_inode;
-	unsigned int type;
-	char *n;
-	while(squashfs_readdir(pdata->dir, &n, &inode_nr, &type)) {
-		if (type != SQUASHFS_REG_TYPE && type != SQUASHFS_LREG_TYPE)
-			continue;
-
-		char *ptr = strrchr(n, '.');
-		if (ptr && !strcmp(ptr + 1, "desktop"))
-			return n;
+	struct dir_ent *ent;
+	while ((ent = squashfs_dir_next(pdata->dir))) {
+		if (ent->type == SQUASHFS_REG_TYPE || ent->type == SQUASHFS_LREG_TYPE) {
+			char *ptr = strrchr(ent->name, '.');
+			if (ptr && !strcmp(ptr + 1, "desktop")) {
+				return ent->name;
+			}
+		}
 	}
 
 	squashfs_closedir(pdata->dir);
