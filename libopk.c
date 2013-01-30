@@ -23,9 +23,7 @@ struct ParserData {
 
 struct ParserData *opk_open(const char *opk_filename)
 {
-	struct ParserData *pdata;
-
-	pdata = malloc(sizeof(*pdata));
+	struct ParserData *pdata = malloc(sizeof(*pdata));
 	if (!pdata)
 		return NULL;
 
@@ -54,9 +52,6 @@ static void list_free(struct ParserData *pdata)
 
 const char *opk_open_metadata(struct ParserData *pdata)
 {
-	char *buf;
-	const char *name;
-
 	/* Free previous meta-data information */
 	list_free(pdata);
 	if (pdata->buf)
@@ -64,12 +59,12 @@ const char *opk_open_metadata(struct ParserData *pdata)
 	pdata->buf = NULL;
 
 	/* Get the name of the next .desktop */
-	name = opk_sqfs_get_metadata(pdata->pdata);
+	const char *name = opk_sqfs_get_metadata(pdata->pdata);
 	if (!name)
 		return NULL;
 
 	/* Extract the meta-data from the OD package */
-	buf = opk_extract_file(pdata, name);
+	char *buf = opk_extract_file(pdata, name);
 	if (!buf)
 		return NULL;
 
@@ -87,9 +82,7 @@ const char *opk_open_metadata(struct ParserData *pdata)
 	/* Insert all the name=value couples found
 	 * on a linked list */
 	while(buf[0]) {
-		struct Entry *e;
-
-		e = malloc(sizeof(*e));
+		struct Entry *e = malloc(sizeof(*e));
 		e->name = buf;
 
 		while(buf[0] && (buf[0] != '='))
