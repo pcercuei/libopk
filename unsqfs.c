@@ -755,30 +755,28 @@ failed:
 	return 0;
 }
 
-static bool uncompress_inode_table(struct PkgData *pdata)
+static bool uncompress_table(struct PkgData *pdata,
+		void **table_data, struct hash_table_entry *hash_table[],
+		long long start, long long end)
 {
-	int size = 0, bytes = 0;
-	long long start = pdata->sBlk.inode_table_start;
-	long long end = pdata->sBlk.directory_table_start;
+	TRACE("uncompress_table: start %lld, end %lld\n", start, end);
 
-	TRACE("uncompress_inode_table: start %lld, end %lld\n", start, end);
-	while(start < end) {
-		if(size - bytes < SQUASHFS_METADATA_SIZE) {
-			pdata->inode_table = realloc(pdata->inode_table,
-						size += SQUASHFS_METADATA_SIZE);
-			if (!pdata->inode_table) {
-				ERROR("Failed to (re)allocate inode table\n");
+	int bytes = 0, size = 0;
+	while (start < end) {
+		if (size - bytes < SQUASHFS_METADATA_SIZE) {
+			*table_data = realloc(*table_data, size += SQUASHFS_METADATA_SIZE);
+			if (!*table_data) {
+				ERROR("Failed to (re)allocate table\n");
 				return false;
 			}
 		}
-		TRACE("uncompress_inode_table: reading block 0x%llx\n", start);
-		if (!add_entry(pdata->inode_table_hash, start, bytes)) {
+		TRACE("uncompress_table: reading block 0x%llx\n", start);
+		if (!add_entry(hash_table, start, bytes)) {
 			return false;
 		}
-		int res = read_block(pdata, start, &start,
-				pdata->inode_table + bytes);
+		int res = read_block(pdata, start, &start, *table_data + bytes);
 		if (res == 0) {
-			ERROR("Failed to read inode table block\n");
+			ERROR("Failed to read table block\n");
 			return false;
 		}
 		bytes += res;
@@ -831,40 +829,6 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 
 		memcpy(buf, data + inode->offset, inode->frag_bytes);
 		free(data);
-	}
-
-	return true;
-}
-
-static bool uncompress_directory_table(struct PkgData *pdata)
-{
-	int bytes = 0, size = 0;
-	long long start = pdata->sBlk.directory_table_start;
-	long long end = pdata->sBlk.fragment_table_start;
-
-	TRACE("uncompress_directory_table: start %lld, end %lld\n", start, end);
-
-	while(start < end) {
-		if(size - bytes < SQUASHFS_METADATA_SIZE) {
-			pdata->directory_table = realloc(pdata->directory_table,
-						size += SQUASHFS_METADATA_SIZE);
-			if (!pdata->directory_table) {
-				ERROR("Failed to (re)allocate directory table\n");
-				return false;
-			}
-		}
-		TRACE("uncompress_directory_table: reading block 0x%llx\n",
-				start);
-		if (!add_entry(pdata->directory_table_hash, start, bytes)) {
-			return false;
-		}
-		int res = read_block(pdata, start, &start,
-				pdata->directory_table + bytes);
-		if (res == 0) {
-			ERROR("Failed to read directory table block\n");
-			return false;
-		}
-		bytes += res;
 	}
 
 	return true;
@@ -995,15 +959,24 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		goto fail_close;
 	}
 
-	if (!read_fragment_table(pdata)) {
-		ERROR("Failed to read fragment table\n");
+	if (!uncompress_table(pdata,
+			&pdata->inode_table, pdata->inode_table_hash,
+			pdata->sBlk.inode_table_start,
+			pdata->sBlk.directory_table_start)) {
+		ERROR("Failed to read inode table\n");
 		goto fail_close;
 	}
 
-	if (!uncompress_inode_table(pdata)) {
+	if (!uncompress_table(pdata,
+			&pdata->directory_table, pdata->directory_table_hash,
+			pdata->sBlk.directory_table_start,
+			pdata->sBlk.fragment_table_start)) {
+		ERROR("Failed to read directory table\n");
 		goto fail_close;
 	}
-	if (!uncompress_directory_table(pdata)) {
+
+	if (!read_fragment_table(pdata)) {
+		ERROR("Failed to read fragment table\n");
 		goto fail_close;
 	}
 
