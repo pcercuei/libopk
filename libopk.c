@@ -18,7 +18,7 @@ struct Entry {
 struct ParserData {
 	SLIST_HEAD(Entries, Entry) head;
 	struct PkgData *pdata;
-	char *buf;
+	void *buf;
 };
 
 struct ParserData *opk_open(const char *opk_filename)
@@ -137,7 +137,7 @@ char *opk_read_param(struct ParserData *pdata, const char *name)
 	return NULL;
 }
 
-char *opk_extract_file(struct ParserData *pdata, const char *name)
+void *opk_extract_file(struct ParserData *pdata, const char *name)
 {
 	return opk_sqfs_extract_file(pdata->pdata, name);
 }

@@ -14,7 +14,7 @@ void opk_close(struct ParserData *pdata);
 const char *opk_open_metadata(struct ParserData *pdata);
 char *opk_read_param(struct ParserData *pdata, const char *name);
 
-char *opk_extract_file(struct ParserData *pdata, const char *name);
+void *opk_extract_file(struct ParserData *pdata, const char *name);
 
 #ifdef __cplusplus
 }

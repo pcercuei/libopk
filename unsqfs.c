@@ -347,7 +347,7 @@ struct PkgData {
 							*directory_table_hash[65536];
 
 	int fd;
-	char *inode_table, *directory_table;
+	void *inode_table, *directory_table;
 
 	struct dir *dir;
 };
@@ -406,7 +406,7 @@ static bool read_fragment_table(struct PkgData *pdata)
 
 	for (int i = 0; i < indexes; i++) {
 		int length = read_block(pdata, fragment_table_index[i], NULL,
-			((char *) pdata->fragment_table) + (i * SQUASHFS_METADATA_SIZE));
+			((void *) pdata->fragment_table) + (i * SQUASHFS_METADATA_SIZE));
 		TRACE("Read fragment table block %d, from 0x%llx, length %d\n",
 			i, fragment_table_index[i], length);
 		if (length == 0) {
@@ -787,7 +787,7 @@ static bool uncompress_inode_table(struct PkgData *pdata)
 	return true;
 }
 
-static bool write_buf(struct PkgData *pdata, struct inode *inode, char *buf)
+static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 {
 	TRACE("write_buf: regular file, blocks %d\n", inode->blocks);
 
@@ -1033,7 +1033,7 @@ void opk_sqfs_close(struct PkgData *pdata)
 	free(pdata);
 }
 
-char *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
+void *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
 {
 	struct inode *i = get_inode(pdata, name);
 	if (!i) {
@@ -1041,7 +1041,7 @@ char *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
 		return NULL;
 	}
 
-	char *buf = calloc(1, i->data + 1);
+	void *buf = calloc(1, i->data + 1);
 	if (!buf) {
 		ERROR("Unable to allocate file extraction buffer\n");
 		return NULL;
