@@ -756,33 +756,45 @@ failed:
 }
 
 static bool uncompress_table(struct PkgData *pdata,
-		void **table_data, struct hash_table_entry *hash_table[],
-		long long start, long long end)
+		void **out_table_data, struct hash_table_entry *hash_table[],
+		const long long start, const long long end)
 {
 	TRACE("uncompress_table: start %lld, end %lld\n", start, end);
 
+	void *table_data = NULL;
 	int bytes = 0, size = 0;
-	while (start < end) {
+	long long curr = start;
+	while (curr < end) {
+		TRACE("uncompress_table: reading block 0x%llx\n", curr);
+		if (!add_entry(hash_table, curr, bytes)) {
+			goto fail_free;
+		}
+
+		// Ensure we have enough space to unpack a metadata block.
 		if (size - bytes < SQUASHFS_METADATA_SIZE) {
-			*table_data = realloc(*table_data, size += SQUASHFS_METADATA_SIZE);
-			if (!*table_data) {
-				ERROR("Failed to (re)allocate table\n");
-				return false;
+			size += SQUASHFS_METADATA_SIZE;
+			void *new_data = realloc(table_data, size);
+			if (!new_data) {
+				ERROR("Failed to (re)allocate table data\n");
+				goto fail_free;
 			}
+			table_data = new_data;
 		}
-		TRACE("uncompress_table: reading block 0x%llx\n", start);
-		if (!add_entry(hash_table, start, bytes)) {
-			return false;
-		}
-		int res = read_block(pdata, start, &start, *table_data + bytes);
+
+		int res = read_block(pdata, curr, &curr, table_data + bytes);
 		if (res == 0) {
 			ERROR("Failed to read table block\n");
-			return false;
+			goto fail_free;
 		}
 		bytes += res;
 	}
 
+	*out_table_data = table_data;
 	return true;
+
+fail_free:
+	free(table_data);
+	return false;
 }
 
 static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
