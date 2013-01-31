@@ -333,7 +333,6 @@ struct pathnames {
 
 struct PkgData {
 	struct squashfs_super_block sBlk;
-	union squashfs_inode_header header;
 	struct inode inode;
 
 	struct squashfs_fragment_entry *fragment_table;
@@ -490,14 +489,14 @@ static struct inode *read_inode(struct PkgData *pdata,
 	}
 
 	void *block_ptr = pdata->inode_table + bytes + inode_offset(inode_nr);
-	union squashfs_inode_header *header = &pdata->header;
-	memcpy(&header->base, block_ptr, sizeof(*(&header->base)));
+	union squashfs_inode_header header;
+	memcpy(&header.base, block_ptr, sizeof(header.base));
 
 	struct inode *i = &pdata->inode;
 
-	switch(header->base.inode_type) {
+	switch(header.base.inode_type) {
 		case SQUASHFS_DIR_TYPE: {
-			struct squashfs_dir_inode_header *inode = &header->dir;
+			struct squashfs_dir_inode_header *inode = &header.dir;
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
@@ -507,7 +506,7 @@ static struct inode *read_inode(struct PkgData *pdata,
 			break;
 		}
 		case SQUASHFS_LDIR_TYPE: {
-			struct squashfs_ldir_inode_header *inode = &header->ldir;
+			struct squashfs_ldir_inode_header *inode = &header.ldir;
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
@@ -517,7 +516,7 @@ static struct inode *read_inode(struct PkgData *pdata,
 			break;
 		}
 		case SQUASHFS_REG_TYPE: {
-			struct squashfs_reg_inode_header *inode = &header->reg;
+			struct squashfs_reg_inode_header *inode = &header.reg;
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
@@ -535,7 +534,7 @@ static struct inode *read_inode(struct PkgData *pdata,
 			break;
 		}
 		case SQUASHFS_LREG_TYPE: {
-			struct squashfs_lreg_inode_header *inode = &header->lreg;
+			struct squashfs_lreg_inode_header *inode = &header.lreg;
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
@@ -553,7 +552,7 @@ static struct inode *read_inode(struct PkgData *pdata,
 			break;
 		}
 		default:
-			TRACE("read_inode: skipping inode type %d\n", header->base.inode_type);
+			TRACE("read_inode: skipping inode type %d\n", header.base.inode_type);
 			return NULL;
 	}
 	return i;
