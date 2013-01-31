@@ -438,6 +438,41 @@ static int squashfs_uncompress(struct PkgData *pdata,
 	return -1;
 }
 
+static int read_compressed(struct PkgData *pdata,
+		long long offset, int csize, void *buf, int buf_size)
+{
+	if (csize >= buf_size) {
+		// In the case compression doesn't make a block smaller,
+		// mksquashfs will store the block uncompressed.
+		ERROR("Refusing to load too-large compressed block\n");
+		return -1;
+	}
+
+	// Load compressed data into temporary buffer.
+	char tmp[csize];
+	if (!read_fs_bytes(pdata->fd, offset, csize, tmp)) {
+		return -1;
+	}
+
+	int error, res = squashfs_uncompress(
+			pdata, buf, tmp, csize, buf_size, &error);
+	if (res == -1) {
+		ERROR("Uncompress failed with error code %d\n", error);
+	}
+	return res;
+}
+
+static int read_uncompressed(struct PkgData *pdata,
+		long long offset, int csize, void *buf, int buf_size)
+{
+	if (csize != buf_size) {
+		ERROR("Refusing to load size-mismatched uncompressed block\n");
+		return -1;
+	}
+
+	return read_fs_bytes(pdata->fd, offset, csize, buf) ? csize : -1;
+}
+
 
 // === High level I/O ===
 
@@ -525,88 +560,44 @@ static struct inode *read_inode(struct PkgData *pdata,
 }
 
 static int read_metadata_block(struct PkgData *pdata,
-		long long start, long long *next, void *block)
+		const long long start, long long *next, void *buf)
 {
-	unsigned short c_byte;
-	int offset = 2;
-	int fd = pdata->fd;
+	long long offset = start;
 
-	if (!read_fs_bytes(fd, start, 2, &c_byte)) {
+	unsigned short c_byte;
+	if (!read_fs_bytes(pdata->fd, offset, 2, &c_byte)) {
+		goto failed;
+	}
+	offset += 2;
+	int csize = SQUASHFS_COMPRESSED_SIZE(c_byte);
+
+	TRACE("read_metadata_block: block @0x%llx, %d %s bytes\n", start, csize,
+			SQUASHFS_COMPRESSED(c_byte) ? "compressed" : "uncompressed");
+
+	const int usize = SQUASHFS_COMPRESSED(c_byte)
+		  ? read_compressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE)
+		  : read_uncompressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE);
+	if (usize < 0) {
 		goto failed;
 	}
 
-	TRACE("read_metadata_block: block @0x%llx, %d %s bytes\n", start,
-		SQUASHFS_COMPRESSED_SIZE(c_byte), SQUASHFS_COMPRESSED(c_byte) ?
-		"compressed" : "uncompressed");
-
-	if(SQUASHFS_COMPRESSED(c_byte)) {
-		char buffer[SQUASHFS_METADATA_SIZE];
-
-		c_byte = SQUASHFS_COMPRESSED_SIZE(c_byte);
-		if (!read_fs_bytes(fd, start + offset, c_byte, buffer)) {
-			goto failed;
-		}
-
-		int error, res = squashfs_uncompress(pdata, block, buffer, c_byte,
-			SQUASHFS_METADATA_SIZE, &error);
-		if(res == -1) {
-			ERROR("uncompress failed with error code %d\n", error);
-			goto failed;
-		}
-
-		if(next)
-			*next = start + offset + c_byte;
-		return res;
-	} else {
-		c_byte = SQUASHFS_COMPRESSED_SIZE(c_byte);
-		if (!read_fs_bytes(fd, start + offset, c_byte, block)) {
-			goto failed;
-		}
-		if(next)
-			*next = start + offset + c_byte;
-		return c_byte;
-	}
+	offset += usize;
+	if (next) *next = offset;
+	return usize;
 
 failed:
-	ERROR("read_metadata_block: failed to read block @0x%llx\n", start);
+	ERROR("Failed to read metadata block @0x%llx\n", start);
 	return 0;
 }
 
 static bool read_data_block(struct PkgData *pdata, void *buf, int buf_size,
-		long long block, int size)
+		long long offset, int size)
 {
 	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(size);
-	if (SQUASHFS_COMPRESSED_BLOCK(size)) { // compressed block
-		if (csize >= buf_size) {
-			// In the case compression doesn't make a block smaller,
-			// mksquashfs will store the block uncompressed.
-			ERROR("Refusing to load too-large compressed block\n");
-			return false;
-		}
-
-		// Load compressed data into temporary buffer.
-		char tmp[csize];
-		if (!read_fs_bytes(pdata->fd, block, sizeof(tmp), tmp)) {
-			return false;
-		}
-
-		int error, res = squashfs_uncompress(
-				pdata, buf, tmp, sizeof(tmp), buf_size, &error);
-		if (res == -1) {
-			ERROR("Uncompress failed with error code %d\n", error);
-			return false;
-		}
-
-		return true;
-
-	} else { // uncompressed block
-		if (csize != buf_size) {
-			ERROR("Refusing to load size-mismatched uncompressed block\n");
-			return false;
-		}
-
-		return read_fs_bytes(pdata->fd, block, buf_size, buf);
-	}
+	return (SQUASHFS_COMPRESSED_BLOCK(size)
+		? read_compressed(pdata, offset, csize, buf, buf_size)
+		: read_uncompressed(pdata, offset, csize, buf, buf_size)
+		) != -1;
 }
 
 static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
