@@ -586,10 +586,10 @@ failed:
 }
 
 static bool read_data_block(struct PkgData *pdata, void *buf, int buf_size,
-		long long offset, int size)
+		long long offset, int c_byte)
 {
-	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(size);
-	return (SQUASHFS_COMPRESSED_BLOCK(size)
+	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
+	return (SQUASHFS_COMPRESSED_BLOCK(c_byte)
 		? read_compressed(pdata, offset, csize, buf, buf_size)
 		: read_uncompressed(pdata, offset, csize, buf, buf_size)
 		) != -1;
@@ -602,19 +602,19 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 	const int file_end = inode->data / pdata->sBlk.block_size;
 	long long start = inode->start;
 	for (int i = 0; i < inode->blocks; i++) {
-		unsigned int csize = inode->block_ptr[i];
 		int size =
 			  i == file_end
 			? inode->data & (pdata->sBlk.block_size - 1)
 			: pdata->sBlk.block_size;
 
-		if (csize == 0) { // sparse file
+		const unsigned int c_byte = inode->block_ptr[i];
+		if (c_byte == 0) { // sparse file
 			memset(buf, 0, size);
 		} else {
-			if (!read_data_block(pdata, buf, size, start, csize)) {
+			if (!read_data_block(pdata, buf, size, start, c_byte)) {
 				return false;
 			}
-			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(csize);
+			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
 		}
 		buf += size;
 	}
