@@ -27,7 +27,10 @@ OBJS = libopk.o unsqfs.o
 
 .PHONY: all analyze clean install install-lib
 
-all: $(LIBOPK)
+all: $(LIBOPK) opkinfo
+
+opkinfo: opkinfo.c $(LIBOPK)
+	$(CC) -o $@ $^ $(CFLAGS)
 
 $(LIBOPK): $(OBJS)
 	$(CC) -shared -Wl,-soname,$(SONAME) -o $@ $^ $(LDFLAGS)
@@ -44,4 +47,4 @@ install: install-lib
 	ln -sf $(SONAME) $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
 
 clean:
-	rm -f $(OBJS) $(LIBOPK)
+	rm -f $(OBJS) $(LIBOPK) opkinfo
