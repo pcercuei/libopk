@@ -272,7 +272,6 @@ struct squashfs_fragment_entry {
 #ifdef SQUASHFS_TRACE
 #define TRACE(s, args...) \
 		do { \
-			printf("\n"); \
 			printf("unsquashfs: "s, ## args); \
 		} while(0)
 #else
@@ -281,7 +280,6 @@ struct squashfs_fragment_entry {
 
 #define ERROR(s, args...) \
 		do { \
-			fprintf(stderr, "\n"); \
 			fprintf(stderr, s, ## args); \
 		} while(0)
 
