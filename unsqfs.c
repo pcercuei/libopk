@@ -460,8 +460,8 @@ static int read_compressed(struct PkgData *pdata,
 static int read_uncompressed(struct PkgData *pdata,
 		long long offset, int csize, void *buf, int buf_size)
 {
-	if (csize != buf_size) {
-		ERROR("Refusing to load size-mismatched uncompressed block\n");
+	if (csize > buf_size) {
+		ERROR("Refusing to load oversized uncompressed block\n");
 		return -1;
 	}
 
@@ -583,14 +583,13 @@ failed:
 	return 0;
 }
 
-static bool read_data_block(struct PkgData *pdata, void *buf, int buf_size,
+static int read_data_block(struct PkgData *pdata, void *buf, int buf_size,
 		long long offset, int c_byte)
 {
 	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
-	return (SQUASHFS_COMPRESSED_BLOCK(c_byte)
+	return SQUASHFS_COMPRESSED_BLOCK(c_byte)
 		? read_compressed(pdata, offset, csize, buf, buf_size)
-		: read_uncompressed(pdata, offset, csize, buf, buf_size)
-		) != -1;
+		: read_uncompressed(pdata, offset, csize, buf, buf_size);
 }
 
 static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
@@ -609,7 +608,12 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 		if (c_byte == 0) { // sparse file
 			memset(buf, 0, size);
 		} else {
-			if (!read_data_block(pdata, buf, size, start, c_byte)) {
+			const int usize = read_data_block(pdata, buf, size, start, c_byte);
+			if (usize < 0) {
+				return false;
+			} else if (usize != size) {
+				ERROR("Error: data block contains %d bytes, expected %d\n",
+						usize, size);
 				return false;
 			}
 			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
@@ -629,8 +633,9 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 			return false;
 		}
 
-		if (!read_data_block(pdata, data, pdata->sBlk.block_size,
-				fragment_entry->start_block, fragment_entry->size)) {
+		const int usize = read_data_block(pdata, data, pdata->sBlk.block_size,
+				fragment_entry->start_block, fragment_entry->size);
+		if (usize < 0) {
 			free(data);
 			return false;
 		}
