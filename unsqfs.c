@@ -574,7 +574,7 @@ static int read_metadata_block(struct PkgData *pdata,
 		goto failed;
 	}
 
-	offset += usize;
+	offset += csize;
 	if (next) *next = offset;
 	return usize;
 
