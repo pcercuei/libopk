@@ -386,29 +386,28 @@ int lookup_entry(struct hash_table_entry *hash_table[], long long start)
 
 // === Low-level I/O ===
 
-static bool read_fs_bytes(int fd, long long byte, int bytes, void *buff)
+static bool read_fs_bytes(int fd, long long offset, int bytes, void *buf)
 {
-	TRACE("read_bytes: reading from position 0x%llx, bytes %d\n", byte,
-		bytes);
+	TRACE("read_bytes: reading from position 0x%llx, bytes %d\n",
+			offset, bytes);
 
-	if(lseek(fd, (off_t)byte, SEEK_SET) == -1) {
-		ERROR("Lseek failed because %s\n", strerror(errno));
+	if (lseek(fd, (off_t)offset, SEEK_SET) == -1) {
+		ERROR("Error seeking in input: %s\n", strerror(errno));
 		return false;
 	}
 
-	for(int res, count = 0; count < bytes; count += res) {
-		res = read(fd, buff + count, bytes - count);
-		if(res < 1) {
-			if(res == 0) {
-				ERROR("Read on filesystem failed because "
-					"EOF\n");
+	for (int res, count = 0; count < bytes; count += res) {
+		res = read(fd, buf + count, bytes - count);
+		if (res < 1) {
+			if (res == 0) {
+				ERROR("Error reading input: unexpected EOF\n");
 				return false;
-			} else if(errno != EINTR) {
-				ERROR("Read on filesystem failed because %s\n",
-						strerror(errno));
-				return false;
-			} else
+			} else if (errno == EINTR) {
 				res = 0;
+			} else {
+				ERROR("Error reading input: %s\n", strerror(errno));
+				return false;
+			}
 		}
 	}
 
