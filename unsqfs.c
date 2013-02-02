@@ -864,11 +864,13 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		goto fail_free;
 	}
 
+	TRACE("Loading superblock...\n");
 	if (!read_super(pdata, image_name)) {
 		ERROR("Could not read superblock\n");
 		goto fail_close;
 	}
 
+	TRACE("Loading inode table...\n");
 	if (!uncompress_table(pdata,
 			&pdata->inode_table, pdata->inode_table_hash,
 			pdata->sBlk.inode_table_start,
@@ -877,6 +879,7 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		goto fail_close;
 	}
 
+	TRACE("Loading directory table...\n");
 	if (!uncompress_table(pdata,
 			&pdata->directory_table, pdata->directory_table_hash,
 			pdata->sBlk.directory_table_start,
@@ -885,11 +888,13 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		goto fail_close;
 	}
 
+	TRACE("Loading fragment table...\n");
 	if (!read_fragment_table(pdata)) {
 		ERROR("Failed to read fragment table\n");
 		goto fail_close;
 	}
 
+	TRACE("Done opening image.\n");
 	return pdata;
 
 fail_close:
