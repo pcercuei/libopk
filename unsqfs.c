@@ -329,15 +329,18 @@ struct pathnames {
 };
 #define PATHS_ALLOC_SIZE 10
 
+struct metadata_table {
+	struct hash_table_entry *hash_table[65536];
+	void *data;
+};
+
 struct PkgData {
 	struct squashfs_super_block sBlk;
-
+	struct metadata_table inode_table;
+	struct metadata_table directory_table;
 	struct squashfs_fragment_entry *fragment_table;
-	struct hash_table_entry *inode_table_hash[65536],
-							*directory_table_hash[65536];
 
 	int fd;
-	void *inode_table, *directory_table;
 
 	struct dir *dir;
 };
@@ -478,13 +481,14 @@ static bool read_inode(struct PkgData *pdata,
 
 	const long long start =
 			pdata->sBlk.inode_table_start + inode_block(inode_addr);
-	const int bytes = lookup_entry(pdata->inode_table_hash, start);
+	const int bytes = lookup_entry(pdata->inode_table.hash_table, start);
 	if (bytes == -1) {
 		ERROR("Inode table block %lld not found\n", start);
 		return false;
 	}
 
-	void *block_ptr = pdata->inode_table + bytes + inode_offset(inode_addr);
+	void *block_ptr =
+			pdata->inode_table.data + bytes + inode_offset(inode_addr);
 	union squashfs_inode_header header;
 	memcpy(&header.base, block_ptr, sizeof(header.base));
 
@@ -662,7 +666,7 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 	}
 
 	long long block = pdata->sBlk.directory_table_start + i.start;
-	int bytes = lookup_entry(pdata->directory_table_hash, block);
+	int bytes = lookup_entry(pdata->directory_table.hash_table, block);
 	if (bytes == -1) {
 		ERROR("Failed to open directory: block %lld not found\n", block);
 		return NULL;
@@ -687,7 +691,7 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 
 	while(bytes < size) {
 		struct squashfs_dir_header dirh;
-		memcpy(&dirh, pdata->directory_table + bytes, sizeof(*(&dirh)));
+		memcpy(&dirh, pdata->directory_table.data + bytes, sizeof(*(&dirh)));
 
 		int dir_count = dirh.count + 1;
 		TRACE("squashfs_opendir: Read directory header @ byte position "
@@ -695,11 +699,11 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 		bytes += sizeof(dirh);
 
 		while(dir_count--) {
-			memcpy(dire, pdata->directory_table + bytes, sizeof(*(dire)));
+			memcpy(dire, pdata->directory_table.data + bytes, sizeof(*(dire)));
 
 			bytes += sizeof(*dire);
 
-			memcpy(dire->name, pdata->directory_table + bytes,
+			memcpy(dire->name, pdata->directory_table.data + bytes,
 				dire->size + 1);
 			dire->name[dire->size + 1] = '\0';
 			TRACE("squashfs_opendir: directory entry %s, inode "
@@ -767,11 +771,12 @@ static bool read_super(struct PkgData *pdata, const char *source)
 }
 
 static bool uncompress_table(struct PkgData *pdata,
-		void **out_table_data, struct hash_table_entry *hash_table[],
+		struct metadata_table *table,
 		const long long cstart, const long long cend)
 {
 	TRACE("uncompress_table: start %lld, end %lld\n", cstart, cend);
 
+	struct hash_table_entry **hash_table = table->hash_table;
 	void *table_data = NULL;
 	int uoff = 0, usize = 0;
 	long long coff = cstart;
@@ -800,7 +805,7 @@ static bool uncompress_table(struct PkgData *pdata,
 		uoff += res;
 	}
 
-	*out_table_data = table_data;
+	table->data = table_data;
 	return true;
 
 fail_free:
@@ -871,8 +876,7 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 	}
 
 	TRACE("Loading inode table...\n");
-	if (!uncompress_table(pdata,
-			&pdata->inode_table, pdata->inode_table_hash,
+	if (!uncompress_table(pdata, &pdata->inode_table,
 			pdata->sBlk.inode_table_start,
 			pdata->sBlk.directory_table_start)) {
 		ERROR("Failed to read inode table\n");
@@ -880,8 +884,7 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 	}
 
 	TRACE("Loading directory table...\n");
-	if (!uncompress_table(pdata,
-			&pdata->directory_table, pdata->directory_table_hash,
+	if (!uncompress_table(pdata, &pdata->directory_table,
 			pdata->sBlk.directory_table_start,
 			pdata->sBlk.fragment_table_start)) {
 		ERROR("Failed to read directory table\n");
@@ -900,8 +903,8 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 fail_close:
 	close(pdata->fd);
 fail_free:
-	free(pdata->inode_table);
-	free(pdata->directory_table);
+	free(pdata->inode_table.data);
+	free(pdata->directory_table.data);
 	free(pdata->fragment_table);
 	free(pdata);
 fail_exit:
@@ -915,8 +918,8 @@ void opk_sqfs_close(struct PkgData *pdata)
 
 	close(pdata->fd);
 
-	free(pdata->inode_table);
-	free(pdata->directory_table);
+	free(pdata->inode_table.data);
+	free(pdata->directory_table.data);
 	free(pdata->fragment_table);
 	free(pdata);
 }
