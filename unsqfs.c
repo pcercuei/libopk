@@ -518,15 +518,16 @@ static bool read_inode(struct PkgData *pdata,
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
+			const bool has_fragment = inode->fragment != SQUASHFS_INVALID_FRAG;
 			i->data = inode->file_size;
-			i->frag_bytes = inode->fragment == SQUASHFS_INVALID_FRAG
-				?  0 : inode->file_size % pdata->sBlk.block_size;
+			i->frag_bytes = has_fragment
+				? inode->file_size % pdata->sBlk.block_size
+				: 0;
 			i->fragment = inode->fragment;
 			i->offset = inode->offset;
-			i->blocks = inode->fragment == SQUASHFS_INVALID_FRAG ?
-				(i->data + pdata->sBlk.block_size - 1) >>
-				pdata->sBlk.block_log :
-				i->data >> pdata->sBlk.block_log;
+			i->blocks = (inode->file_size
+				+ (has_fragment ? 0 : pdata->sBlk.block_size - 1)
+				) >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
 			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
@@ -536,15 +537,16 @@ static bool read_inode(struct PkgData *pdata,
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
+			const bool has_fragment = inode->fragment != SQUASHFS_INVALID_FRAG;
 			i->data = inode->file_size;
-			i->frag_bytes = inode->fragment == SQUASHFS_INVALID_FRAG
-				?  0 : inode->file_size % pdata->sBlk.block_size;
+			i->frag_bytes = has_fragment
+				? inode->file_size % pdata->sBlk.block_size
+				: 0;
 			i->fragment = inode->fragment;
 			i->offset = inode->offset;
-			i->blocks = inode->fragment == SQUASHFS_INVALID_FRAG ?
-				(i->data + pdata->sBlk.block_size - 1) >>
-				pdata->sBlk.block_log :
-				i->data >> pdata->sBlk.block_log;
+			i->blocks = (inode->file_size
+				+ (has_fragment ? 0 : pdata->sBlk.block_size - 1)
+				) >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
 			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
