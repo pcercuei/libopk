@@ -102,15 +102,15 @@
  * uncompressed offset within that block.
  */
 typedef long long squashfs_inode;
-static inline unsigned int inode_block(squashfs_inode inode_nr)
+static inline unsigned int inode_block(squashfs_inode inode_addr)
 {
-	return (unsigned int)(inode_nr >> 16);
+	return (unsigned int)(inode_addr >> 16);
 }
-static inline unsigned short inode_offset(squashfs_inode inode_nr)
+static inline unsigned short inode_offset(squashfs_inode inode_addr)
 {
-	return (unsigned short)(inode_nr & 0xffff);
+	return (unsigned short)(inode_addr & 0xffff);
 }
-static inline squashfs_inode inode_number(
+static inline squashfs_inode inode_address(
 		unsigned int block, unsigned short offset)
 {
 	return ((squashfs_inode)block << 16) | offset;
@@ -303,7 +303,7 @@ struct inode {
 
 struct dir_ent {
 	char name[SQUASHFS_NAME_LEN + 1];
-	squashfs_inode inode_nr;
+	squashfs_inode inode_addr;
 	unsigned int type;
 };
 
@@ -472,19 +472,19 @@ static int read_uncompressed(struct PkgData *pdata,
 // === High level I/O ===
 
 static bool read_inode(struct PkgData *pdata,
-		squashfs_inode inode_nr, struct inode *i)
+		squashfs_inode inode_addr, struct inode *i)
 {
-	TRACE("read_inode: reading inode %012llX\n", inode_nr);
+	TRACE("read_inode: reading inode %012llX\n", inode_addr);
 
 	const long long start =
-			pdata->sBlk.inode_table_start + inode_block(inode_nr);
+			pdata->sBlk.inode_table_start + inode_block(inode_addr);
 	const int bytes = lookup_entry(pdata->inode_table_hash, start);
 	if (bytes == -1) {
 		ERROR("Inode table block %lld not found\n", start);
 		return false;
 	}
 
-	void *block_ptr = pdata->inode_table + bytes + inode_offset(inode_nr);
+	void *block_ptr = pdata->inode_table + bytes + inode_offset(inode_addr);
 	union squashfs_inode_header header;
 	memcpy(&header.base, block_ptr, sizeof(header.base));
 
@@ -651,13 +651,13 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 // === Directories ===
 
 static struct dir *squashfs_opendir(struct PkgData *pdata,
-		squashfs_inode inode_nr)
+		squashfs_inode inode_addr)
 {
-	TRACE("squashfs_opendir: inode %012llX\n", inode_nr);
+	TRACE("squashfs_opendir: inode %012llX\n", inode_addr);
 
 	struct inode i;
-	if (!read_inode(pdata, inode_nr, &i)) {
-		ERROR("Failed to read directory inode %012llX\n", inode_nr);
+	if (!read_inode(pdata, inode_addr, &i)) {
+		ERROR("Failed to read directory inode %012llX\n", inode_addr);
 		return NULL;
 	}
 
@@ -717,8 +717,8 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 				dir->dirs = new_dir;
 			}
 			strcpy(dir->dirs[dir->dir_count].name, dire->name);
-			dir->dirs[dir->dir_count].inode_nr =
-					inode_number(dirh.start_block, dire->offset);
+			dir->dirs[dir->dir_count].inode_addr =
+					inode_address(dirh.start_block, dire->offset);
 			dir->dirs[dir->dir_count].type = dire->type;
 			dir->dir_count ++;
 			bytes += dire->size + 1;
@@ -922,9 +922,9 @@ void opk_sqfs_close(struct PkgData *pdata)
 }
 
 static bool get_inode_from_dir(struct PkgData *pdata,
-		const char *name, squashfs_inode inode_nr, struct inode *i)
+		const char *name, squashfs_inode inode_addr, struct inode *i)
 {
-	struct dir *dir = squashfs_opendir(pdata, inode_nr);
+	struct dir *dir = squashfs_opendir(pdata, inode_addr);
 	if (!dir) {
 		return false;
 	}
@@ -933,9 +933,9 @@ static bool get_inode_from_dir(struct PkgData *pdata,
 	struct dir_ent *ent;
 	while (!found && (ent = squashfs_dir_next(dir))) {
 		if (ent->type == SQUASHFS_DIR_TYPE) {
-			found = get_inode_from_dir(pdata, name, ent->inode_nr, i);
+			found = get_inode_from_dir(pdata, name, ent->inode_addr, i);
 		} else if (!strcmp(ent->name, name)) {
-			found = read_inode(pdata, ent->inode_nr, i);
+			found = read_inode(pdata, ent->inode_addr, i);
 		}
 	}
 
