@@ -21,7 +21,18 @@ static bool display_info(char *package_path) {
 		if (!metadata_name) {
 			break;
 		}
-		printf("\nmetadata file: %s\n", metadata_name);
+		printf("\n");
+		printf("Metadata file: %s\n\n", metadata_name);
+		printf("Name:          %s\n", opk_read_param(opk, "Name"));
+		printf("Comment:       %s\n", opk_read_param(opk, "Comment"));
+		printf("Type:          %s\n", opk_read_param(opk, "Type"));
+		printf("Categories:    %s\n", opk_read_param(opk, "Categories"));
+		printf("Icon:          %s\n", opk_read_param(opk, "Icon"));
+		printf("Exec:          %s\n", opk_read_param(opk, "Exec"));
+		printf("Terminal:      %s\n", opk_read_param(opk, "Terminal"));
+		printf("MimeType:      %s\n", opk_read_param(opk, "MimeType"));
+		printf("X-OD-Manual:   %s\n", opk_read_param(opk, "X-OD-Manual"));
+		printf("X-OD-Daemon:   %s\n", opk_read_param(opk, "X-OD-Daemon"));
 	}
 
 	opk_close(opk);
