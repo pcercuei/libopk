@@ -101,18 +101,19 @@
  * Inode number ops.  Inodes consist of a compressed block number, and an
  * uncompressed offset within that block.
  */
-static inline unsigned short inode_block(unsigned int inode_nr)
+typedef long long squashfs_inode;
+static inline unsigned int inode_block(squashfs_inode inode_nr)
 {
-	return inode_nr >> 16;
+	return (unsigned int)(inode_nr >> 16);
 }
-static inline unsigned short inode_offset(unsigned int inode_nr)
+static inline unsigned short inode_offset(squashfs_inode inode_nr)
 {
-	return inode_nr & 0xffff;
+	return (unsigned short)(inode_nr & 0xffff);
 }
-static inline unsigned int inode_number(
-		unsigned short block, unsigned short offset)
+static inline squashfs_inode inode_number(
+		unsigned int block, unsigned short offset)
 {
-	return ((unsigned int)block << 16) | offset;
+	return ((squashfs_inode)block << 16) | offset;
 }
 
 /* fragment and fragment table defines */
@@ -136,7 +137,6 @@ static inline unsigned int inode_number(
  */
 
 typedef long long		squashfs_block;
-typedef long long		squashfs_inode;
 
 #define ZLIB_COMPRESSION	1
 #define LZO_COMPRESSION		3
@@ -302,9 +302,9 @@ struct inode {
 #define DIR_ENT_SIZE	16
 
 struct dir_ent {
-	char		name[SQUASHFS_NAME_LEN + 1];
-	unsigned int	inode_nr;
-	unsigned int	type;
+	char name[SQUASHFS_NAME_LEN + 1];
+	squashfs_inode inode_nr;
+	unsigned int type;
 };
 
 struct dir {
@@ -472,9 +472,9 @@ static int read_uncompressed(struct PkgData *pdata,
 // === High level I/O ===
 
 static bool read_inode(struct PkgData *pdata,
-		unsigned int inode_nr, struct inode *i)
+		squashfs_inode inode_nr, struct inode *i)
 {
-	TRACE("read_inode: reading inode %08X\n", inode_nr);
+	TRACE("read_inode: reading inode %012llX\n", inode_nr);
 
 	const long long start =
 			pdata->sBlk.inode_table_start + inode_block(inode_nr);
@@ -651,13 +651,13 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 // === Directories ===
 
 static struct dir *squashfs_opendir(struct PkgData *pdata,
-			unsigned int inode_nr)
+		squashfs_inode inode_nr)
 {
-	TRACE("squashfs_opendir: inode %08X\n", inode_nr);
+	TRACE("squashfs_opendir: inode %012llX\n", inode_nr);
 
 	struct inode i;
 	if (!read_inode(pdata, inode_nr, &i)) {
-		ERROR("Failed to read directory inode %08X\n", inode_nr);
+		ERROR("Failed to read directory inode %012llX\n", inode_nr);
 		return NULL;
 	}
 
@@ -922,7 +922,7 @@ void opk_sqfs_close(struct PkgData *pdata)
 }
 
 static bool get_inode_from_dir(struct PkgData *pdata,
-		const char *name, unsigned int inode_nr, struct inode *i)
+		const char *name, squashfs_inode inode_nr, struct inode *i)
 {
 	struct dir *dir = squashfs_opendir(pdata, inode_nr);
 	if (!dir) {
