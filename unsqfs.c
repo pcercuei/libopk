@@ -345,6 +345,7 @@ struct PkgData {
 struct hash_table_entry {
 	long long cstart;
 	const void *udata;
+	int usize;
 	struct hash_table_entry *next;
 };
 
@@ -354,7 +355,7 @@ static int calculate_hash(long long cstart)
 }
 
 static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
-	const void *udata)
+	const void *udata, int usize)
 {
 	struct hash_table_entry *entry = malloc(sizeof(struct hash_table_entry));
 	if (!entry) {
@@ -365,6 +366,7 @@ static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
 	const int hash = calculate_hash(cstart);
 	entry->cstart = cstart;
 	entry->udata = udata;
+	entry->usize = usize;
 	entry->next = hash_table[hash];
 	hash_table[hash] = entry;
 
@@ -796,15 +798,16 @@ static bool uncompress_table(struct PkgData *pdata,
 	void *udata = table_data;
 	for (long long coff = cstart; coff < cend; ) {
 		TRACE("uncompress_table: reading block 0x%llx\n", coff);
-		if (!add_entry(hash_table, coff, udata)) {
-			goto fail_free;
-		}
-
-		int res = read_metadata_block(pdata, coff, &coff, udata);
+		long long next;
+		int res = read_metadata_block(pdata, coff, &next, udata);
 		if (res == 0) {
 			ERROR("Failed to read table block\n");
 			goto fail_free;
 		}
+		if (!add_entry(hash_table, coff, udata, res)) {
+			goto fail_free;
+		}
+		coff = next;
 		udata += SQUASHFS_METADATA_SIZE;
 	}
 
