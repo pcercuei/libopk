@@ -283,12 +283,6 @@ struct squashfs_fragment_entry {
 			fprintf(stderr, s, ## args); \
 		} while(0)
 
-struct hash_table_entry {
-	long long	start;
-	int		bytes;
-	struct hash_table_entry *next;
-};
-
 struct inode {
 	int blocks;
 	unsigned int *block_ptr;
@@ -348,40 +342,42 @@ struct PkgData {
 
 // === Hashtable ===
 
-#define CALCULATE_HASH(start)	(start & 0xffff)
+struct hash_table_entry {
+	long long cstart;
+	int ustart;
+	struct hash_table_entry *next;
+};
 
-static bool add_entry(struct hash_table_entry *hash_table[], long long start,
-	int bytes)
+static int calculate_hash(long long cstart)
 {
-	int hash = CALCULATE_HASH(start);
-	struct hash_table_entry *hash_table_entry;
+	return cstart & 0xffff;
+}
 
-	hash_table_entry = malloc(sizeof(struct hash_table_entry));
-	if (!hash_table_entry) {
+static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
+	int ustart)
+{
+	struct hash_table_entry *entry = malloc(sizeof(struct hash_table_entry));
+	if (!entry) {
 		ERROR("Failed to allocate hash table entry\n");
 		return false;
 	}
 
-	hash_table_entry->start = start;
-	hash_table_entry->bytes = bytes;
-	hash_table_entry->next = hash_table[hash];
-	hash_table[hash] = hash_table_entry;
+	const int hash = calculate_hash(cstart);
+	entry->cstart = cstart;
+	entry->ustart = ustart;
+	entry->next = hash_table[hash];
+	hash_table[hash] = entry;
 
 	return true;
 }
 
-int lookup_entry(struct hash_table_entry *hash_table[], long long start)
+int lookup_entry(struct hash_table_entry *hash_table[], long long cstart)
 {
-	int hash = CALCULATE_HASH(start);
-	struct hash_table_entry *hash_table_entry;
-
-	for(hash_table_entry = hash_table[hash]; hash_table_entry;
-				hash_table_entry = hash_table_entry->next)
-
-		if(hash_table_entry->start == start)
-			return hash_table_entry->bytes;
-
-	return -1;
+	struct hash_table_entry *entry = hash_table[calculate_hash(cstart)];
+	while (entry && entry->cstart != cstart) {
+		entry = entry->next;
+	}
+	return entry ? entry->ustart : -1;
 }
 
 
