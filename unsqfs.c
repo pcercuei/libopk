@@ -285,7 +285,7 @@ struct squashfs_fragment_entry {
 
 struct inode {
 	int blocks;
-	unsigned int *block_ptr;
+	const unsigned int *block_ptr;
 	long long data;
 	int fragment;
 	int frag_bytes;
@@ -344,7 +344,7 @@ struct PkgData {
 
 struct hash_table_entry {
 	long long cstart;
-	int ustart;
+	const void *udata;
 	struct hash_table_entry *next;
 };
 
@@ -354,7 +354,7 @@ static int calculate_hash(long long cstart)
 }
 
 static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
-	int ustart)
+	const void *udata)
 {
 	struct hash_table_entry *entry = malloc(sizeof(struct hash_table_entry));
 	if (!entry) {
@@ -364,20 +364,20 @@ static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
 
 	const int hash = calculate_hash(cstart);
 	entry->cstart = cstart;
-	entry->ustart = ustart;
+	entry->udata = udata;
 	entry->next = hash_table[hash];
 	hash_table[hash] = entry;
 
 	return true;
 }
 
-int lookup_entry(struct hash_table_entry *hash_table[], long long cstart)
+const void *lookup_entry(struct hash_table_entry *hash_table[], long long cstart)
 {
 	struct hash_table_entry *entry = hash_table[calculate_hash(cstart)];
 	while (entry && entry->cstart != cstart) {
 		entry = entry->next;
 	}
-	return entry ? entry->ustart : -1;
+	return entry ? entry->udata : NULL;
 }
 
 
@@ -477,14 +477,13 @@ static bool read_inode(struct PkgData *pdata,
 
 	const long long start =
 			pdata->sBlk.inode_table_start + inode_block(inode_addr);
-	const int bytes = lookup_entry(pdata->inode_table.hash_table, start);
-	if (bytes == -1) {
+	const void *udata = lookup_entry(pdata->inode_table.hash_table, start);
+	if (!udata) {
 		ERROR("Inode table block %lld not found\n", start);
 		return false;
 	}
 
-	void *block_ptr =
-			pdata->inode_table.data + bytes + inode_offset(inode_addr);
+	const void *block_ptr = udata + inode_offset(inode_addr);
 	union squashfs_inode_header header;
 	memcpy(&header.base, block_ptr, sizeof(header.base));
 
@@ -664,14 +663,14 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 	}
 
 	long long block = pdata->sBlk.directory_table_start + i.start;
-	int bytes = lookup_entry(pdata->directory_table.hash_table, block);
-	if (bytes == -1) {
+	const void *udata = lookup_entry(pdata->directory_table.hash_table, block);
+	if (!udata) {
 		ERROR("Failed to open directory: block %lld not found\n", block);
 		return NULL;
 	}
 
-	bytes += i.offset;
-	const int size = i.data + bytes - 3;
+	udata += i.offset;
+	const void *end = udata + i.data - 3;
 
 	struct dir *dir = malloc(sizeof(struct dir));
 	if (!dir) {
@@ -687,22 +686,21 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 		__attribute__((aligned));
 	struct squashfs_dir_entry *dire = (struct squashfs_dir_entry *) buffer;
 
-	while(bytes < size) {
+	while (udata < end) {
 		struct squashfs_dir_header dirh;
-		memcpy(&dirh, pdata->directory_table.data + bytes, sizeof(*(&dirh)));
+		memcpy(&dirh, udata, sizeof(*(&dirh)));
 
 		int dir_count = dirh.count + 1;
-		TRACE("squashfs_opendir: Read directory header @ byte position "
-			"%d, %d directory entries\n", bytes, dir_count);
-		bytes += sizeof(dirh);
+		TRACE("squashfs_opendir: Read directory header, %d directory entries\n",
+				dir_count);
+		udata += sizeof(dirh);
 
 		while(dir_count--) {
-			memcpy(dire, pdata->directory_table.data + bytes, sizeof(*(dire)));
+			memcpy(dire, udata, sizeof(*(dire)));
 
-			bytes += sizeof(*dire);
+			udata += sizeof(*dire);
 
-			memcpy(dire->name, pdata->directory_table.data + bytes,
-				dire->size + 1);
+			memcpy(dire->name, udata, dire->size + 1);
 			dire->name[dire->size + 1] = '\0';
 			TRACE("squashfs_opendir: directory entry %s, inode "
 				"%d:%d, type %d\n", dire->name,
@@ -723,7 +721,7 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 					inode_address(dirh.start_block, dire->offset);
 			dir->dirs[dir->dir_count].type = dire->type;
 			dir->dir_count ++;
-			bytes += dire->size + 1;
+			udata += dire->size + 1;
 		}
 	}
 
@@ -774,33 +772,40 @@ static bool uncompress_table(struct PkgData *pdata,
 {
 	TRACE("uncompress_table: start %lld, end %lld\n", cstart, cend);
 
+	// Count blocks.
+	int blocks = 0;
+	for (long long coff = cstart; coff < cend; blocks++) {
+		unsigned short c_byte;
+		if (!read_fs_bytes(pdata->fd, coff, 2, &c_byte)) {
+			goto fail_exit;
+		}
+		coff += 2 + SQUASHFS_COMPRESSED_SIZE(c_byte);
+	}
+	TRACE("uncompress_table: %d metadata blocks\n", blocks);
+	if (blocks == 0) {
+		goto fail_exit;
+	}
+
+	// Reserve space for decompressed metadata blocks.
+	void *table_data = malloc(blocks * SQUASHFS_METADATA_SIZE);
+	if (!table_data) {
+		goto fail_exit;
+	}
+
 	struct hash_table_entry **hash_table = table->hash_table;
-	void *table_data = NULL;
-	int uoff = 0, usize = 0;
-	long long coff = cstart;
-	while (coff < cend) {
+	void *udata = table_data;
+	for (long long coff = cstart; coff < cend; ) {
 		TRACE("uncompress_table: reading block 0x%llx\n", coff);
-		if (!add_entry(hash_table, coff, uoff)) {
+		if (!add_entry(hash_table, coff, udata)) {
 			goto fail_free;
 		}
 
-		// Ensure we have enough space to unpack a metadata block.
-		if (usize - uoff < SQUASHFS_METADATA_SIZE) {
-			usize += SQUASHFS_METADATA_SIZE;
-			void *new_data = realloc(table_data, usize);
-			if (!new_data) {
-				ERROR("Failed to (re)allocate table data\n");
-				goto fail_free;
-			}
-			table_data = new_data;
-		}
-
-		int res = read_metadata_block(pdata, coff, &coff, table_data + uoff);
+		int res = read_metadata_block(pdata, coff, &coff, udata);
 		if (res == 0) {
 			ERROR("Failed to read table block\n");
 			goto fail_free;
 		}
-		uoff += res;
+		udata += SQUASHFS_METADATA_SIZE;
 	}
 
 	table->data = table_data;
@@ -808,6 +813,7 @@ static bool uncompress_table(struct PkgData *pdata,
 
 fail_free:
 	free(table_data);
+fail_exit:
 	return false;
 }
 
