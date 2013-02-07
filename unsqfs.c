@@ -283,18 +283,6 @@ struct squashfs_fragment_entry {
 			fprintf(stderr, s, ## args); \
 		} while(0)
 
-struct inode {
-	int num_blocks;
-	const unsigned int *block_ptr;
-	long long file_size;
-	int fragment;
-	int frag_bytes;
-	int offset; // file: offset in fragment block
-	            // dir:  offset in directory block
-	long long start; // file: compressed block start address
-	                 // dir:  offset of directory block in directory table
-};
-
 #define DIR_ENT_SIZE	16
 
 struct dir_ent {
@@ -375,13 +363,14 @@ static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
 	return true;
 }
 
-const void *lookup_entry(struct hash_table_entry *hash_table[], long long cstart)
+struct hash_table_entry *lookup_entry(
+		struct hash_table_entry *hash_table[], long long cstart)
 {
 	struct hash_table_entry *entry = hash_table[calculate_hash(cstart)];
 	while (entry && entry->cstart != cstart) {
 		entry = entry->next;
 	}
-	return entry ? entry->udata : NULL;
+	return entry;
 }
 
 
@@ -474,28 +463,76 @@ static int read_uncompressed(struct PkgData *pdata,
 
 // === High level I/O ===
 
+struct metadata_accessor {
+	squashfs_block start_block;
+	unsigned short offset;
+	const void *block_ptr;
+};
+
+static bool init_metadata_accessor(
+		struct metadata_accessor *accessor,
+		struct metadata_table *table,
+		squashfs_block start_block, unsigned short offset)
+{
+	const struct hash_table_entry *entry =
+			lookup_entry(table->hash_table, start_block);
+	if (!entry) {
+		ERROR("Table block %lld not found\n", start_block);
+		return false;
+	}
+	accessor->start_block = start_block;
+	accessor->offset = offset;
+	accessor->block_ptr = entry->udata;
+	return true;
+}
+
+static bool read_metadata(
+		struct metadata_accessor *accessor,
+		void *dest, size_t num_bytes)
+{
+	memcpy(dest, accessor->block_ptr + accessor->offset, num_bytes);
+	accessor->offset += num_bytes;
+	return true;
+}
+
+struct inode {
+	int num_blocks;
+	struct metadata_accessor accessor;
+	long long file_size;
+	int fragment;
+	int frag_bytes;
+	int offset; // file: offset in fragment block
+	            // dir:  offset in directory block
+	long long start; // file: compressed block start address
+	                 // dir:  offset of directory block in directory table
+};
+
 static bool read_inode(struct PkgData *pdata,
 		squashfs_inode inode_addr, struct inode *i)
 {
 	TRACE("read_inode: reading inode %012llX\n", inode_addr);
 
-	const long long start =
-			pdata->sBlk.inode_table_start + inode_block(inode_addr);
-	const void *udata = lookup_entry(pdata->inode_table.hash_table, start);
-	if (!udata) {
-		ERROR("Inode table block %lld not found\n", start);
+	if (!init_metadata_accessor(&i->accessor, &pdata->inode_table,
+			pdata->sBlk.inode_table_start + inode_block(inode_addr),
+			inode_offset(inode_addr))) {
 		return false;
 	}
 
-	const void *block_ptr = udata + inode_offset(inode_addr);
 	union squashfs_inode_header header;
-	memcpy(&header.base, block_ptr, sizeof(header.base));
+	void *header_ptr = &header.base;
+	if (!read_metadata(&i->accessor, header_ptr, sizeof(header.base))) {
+		return false;
+	}
+	header_ptr += sizeof(header.base);
 
 	switch(header.base.inode_type) {
 		case SQUASHFS_DIR_TYPE: {
 			struct squashfs_dir_inode_header *inode = &header.dir;
 
-			memcpy(inode, block_ptr, sizeof(*(inode)));
+			if (!read_metadata(&i->accessor, header_ptr,
+					sizeof(*inode) - sizeof(header.base))) {
+				return false;
+			}
 
 			i->file_size = inode->file_size;
 			i->offset = inode->offset;
@@ -505,7 +542,10 @@ static bool read_inode(struct PkgData *pdata,
 		case SQUASHFS_LDIR_TYPE: {
 			struct squashfs_ldir_inode_header *inode = &header.ldir;
 
-			memcpy(inode, block_ptr, sizeof(*(inode)));
+			if (!read_metadata(&i->accessor, header_ptr,
+					sizeof(*inode) - sizeof(header.base))) {
+				return false;
+			}
 
 			i->file_size = inode->file_size;
 			i->offset = inode->offset;
@@ -515,7 +555,10 @@ static bool read_inode(struct PkgData *pdata,
 		case SQUASHFS_REG_TYPE: {
 			struct squashfs_reg_inode_header *inode = &header.reg;
 
-			memcpy(inode, block_ptr, sizeof(*(inode)));
+			if (!read_metadata(&i->accessor, header_ptr,
+					sizeof(*inode) - sizeof(header.base))) {
+				return false;
+			}
 
 			const bool has_fragment = inode->fragment != SQUASHFS_INVALID_FRAG;
 			i->file_size = inode->file_size;
@@ -528,13 +571,15 @@ static bool read_inode(struct PkgData *pdata,
 				+ (has_fragment ? 0 : pdata->sBlk.block_size - 1)
 				) >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
-			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
 		}
 		case SQUASHFS_LREG_TYPE: {
 			struct squashfs_lreg_inode_header *inode = &header.lreg;
 
-			memcpy(inode, block_ptr, sizeof(*(inode)));
+			if (!read_metadata(&i->accessor, header_ptr,
+					sizeof(*inode) - sizeof(header.base))) {
+				return false;
+			}
 
 			const bool has_fragment = inode->fragment != SQUASHFS_INVALID_FRAG;
 			i->file_size = inode->file_size;
@@ -547,7 +592,6 @@ static bool read_inode(struct PkgData *pdata,
 				+ (has_fragment ? 0 : pdata->sBlk.block_size - 1)
 				) >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
-			i->block_ptr = block_ptr + sizeof(*inode);
 			break;
 		}
 		default:
@@ -609,7 +653,10 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 			? inode->file_size & (pdata->sBlk.block_size - 1)
 			: pdata->sBlk.block_size;
 
-		const unsigned int c_byte = inode->block_ptr[i];
+		unsigned int c_byte;
+		if (!read_metadata(&inode->accessor, &c_byte, sizeof(c_byte))) {
+			return false;
+		}
 		if (c_byte == 0) { // sparse file
 			memset(buf, 0, size);
 		} else {
@@ -666,15 +713,11 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 		return NULL;
 	}
 
-	long long block = pdata->sBlk.directory_table_start + i.start;
-	const void *udata = lookup_entry(pdata->directory_table.hash_table, block);
-	if (!udata) {
-		ERROR("Failed to open directory: block %lld not found\n", block);
+	struct metadata_accessor accessor;
+	if (!init_metadata_accessor(&accessor, &pdata->directory_table,
+			pdata->sBlk.directory_table_start + i.start, i.offset)) {
 		return NULL;
 	}
-
-	udata += i.offset;
-	const void *end = udata + i.file_size - 3;
 
 	struct dir *dir = malloc(sizeof(struct dir));
 	if (!dir) {
@@ -690,22 +733,27 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 		__attribute__((aligned));
 	struct squashfs_dir_entry *dire = (struct squashfs_dir_entry *) buffer;
 
-	while (udata < end) {
+	int remaining = i.file_size - 3;
+	while (remaining > 0) {
 		struct squashfs_dir_header dirh;
-		memcpy(&dirh, udata, sizeof(*(&dirh)));
+		if (!read_metadata(&accessor, &dirh, sizeof(dirh))) {
+			goto fail_free;
+		}
+		remaining -= sizeof(dirh);
 
 		int dir_count = dirh.count + 1;
 		TRACE("squashfs_opendir: Read directory header, %d directory entries\n",
 				dir_count);
-		udata += sizeof(dirh);
 
 		while(dir_count--) {
-			memcpy(dire, udata, sizeof(*(dire)));
-
-			udata += sizeof(*dire);
-
-			memcpy(dire->name, udata, dire->size + 1);
+			if (!read_metadata(&accessor, dire, sizeof(*dire))) {
+				goto fail_free;
+			}
+			if (!read_metadata(&accessor, dire->name, dire->size + 1)) {
+				goto fail_free;
+			}
 			dire->name[dire->size + 1] = '\0';
+			remaining -= sizeof(*dire) + dire->size + 1;
 			TRACE("squashfs_opendir: directory entry %s, inode "
 				"%d:%d, type %d\n", dire->name,
 				dirh.start_block, dire->offset, dire->type);
@@ -715,8 +763,7 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 						* sizeof(struct dir_ent));
 				if (!new_dir) {
 					ERROR("Failed to (re)allocate directory contents\n");
-					free(dir);
-					return NULL;
+					goto fail_free;
 				}
 				dir->dirs = new_dir;
 			}
@@ -725,11 +772,14 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 					inode_address(dirh.start_block, dire->offset);
 			dir->dirs[dir->dir_count].type = dire->type;
 			dir->dir_count ++;
-			udata += dire->size + 1;
 		}
 	}
 
 	return dir;
+
+fail_free:
+	free(dir);
+	return NULL;
 }
 
 static struct dir_ent *squashfs_dir_next(struct dir *dir)
