@@ -284,13 +284,15 @@ struct squashfs_fragment_entry {
 		} while(0)
 
 struct inode {
-	int blocks;
+	int num_blocks;
 	const unsigned int *block_ptr;
-	long long data;
+	long long file_size;
 	int fragment;
 	int frag_bytes;
-	int offset;
-	long long start;
+	int offset; // file: offset in fragment block
+	            // dir:  offset in directory block
+	long long start; // file: compressed block start address
+	                 // dir:  offset of directory block in directory table
 };
 
 #define DIR_ENT_SIZE	16
@@ -495,7 +497,7 @@ static bool read_inode(struct PkgData *pdata,
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
-			i->data = inode->file_size;
+			i->file_size = inode->file_size;
 			i->offset = inode->offset;
 			i->start = inode->start_block;
 			break;
@@ -505,7 +507,7 @@ static bool read_inode(struct PkgData *pdata,
 
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
-			i->data = inode->file_size;
+			i->file_size = inode->file_size;
 			i->offset = inode->offset;
 			i->start = inode->start_block;
 			break;
@@ -516,13 +518,13 @@ static bool read_inode(struct PkgData *pdata,
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
 			const bool has_fragment = inode->fragment != SQUASHFS_INVALID_FRAG;
-			i->data = inode->file_size;
+			i->file_size = inode->file_size;
 			i->frag_bytes = has_fragment
 				? inode->file_size % pdata->sBlk.block_size
 				: 0;
 			i->fragment = inode->fragment;
 			i->offset = inode->offset;
-			i->blocks = (inode->file_size
+			i->num_blocks = (inode->file_size
 				+ (has_fragment ? 0 : pdata->sBlk.block_size - 1)
 				) >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
@@ -535,13 +537,13 @@ static bool read_inode(struct PkgData *pdata,
 			memcpy(inode, block_ptr, sizeof(*(inode)));
 
 			const bool has_fragment = inode->fragment != SQUASHFS_INVALID_FRAG;
-			i->data = inode->file_size;
+			i->file_size = inode->file_size;
 			i->frag_bytes = has_fragment
 				? inode->file_size % pdata->sBlk.block_size
 				: 0;
 			i->fragment = inode->fragment;
 			i->offset = inode->offset;
-			i->blocks = (inode->file_size
+			i->num_blocks = (inode->file_size
 				+ (has_fragment ? 0 : pdata->sBlk.block_size - 1)
 				) >> pdata->sBlk.block_log;
 			i->start = inode->start_block;
@@ -597,14 +599,14 @@ static int read_data_block(struct PkgData *pdata, void *buf, int buf_size,
 
 static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 {
-	TRACE("write_buf: regular file, blocks %d\n", inode->blocks);
+	TRACE("write_buf: regular file, %d blocks\n", inode->num_blocks);
 
-	const int file_end = inode->data / pdata->sBlk.block_size;
+	const int file_end = inode->file_size / pdata->sBlk.block_size;
 	long long start = inode->start;
-	for (int i = 0; i < inode->blocks; i++) {
+	for (int i = 0; i < inode->num_blocks; i++) {
 		int size =
 			  i == file_end
-			? inode->data & (pdata->sBlk.block_size - 1)
+			? inode->file_size & (pdata->sBlk.block_size - 1)
 			: pdata->sBlk.block_size;
 
 		const unsigned int c_byte = inode->block_ptr[i];
@@ -672,7 +674,7 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 	}
 
 	udata += i.offset;
-	const void *end = udata + i.data - 3;
+	const void *end = udata + i.file_size - 3;
 
 	struct dir *dir = malloc(sizeof(struct dir));
 	if (!dir) {
@@ -775,21 +777,21 @@ static bool uncompress_table(struct PkgData *pdata,
 	TRACE("uncompress_table: start %lld, end %lld\n", cstart, cend);
 
 	// Count blocks.
-	int blocks = 0;
-	for (long long coff = cstart; coff < cend; blocks++) {
+	int num_blocks = 0;
+	for (long long coff = cstart; coff < cend; num_blocks++) {
 		unsigned short c_byte;
 		if (!read_fs_bytes(pdata->fd, coff, 2, &c_byte)) {
 			goto fail_exit;
 		}
 		coff += 2 + SQUASHFS_COMPRESSED_SIZE(c_byte);
 	}
-	TRACE("uncompress_table: %d metadata blocks\n", blocks);
-	if (blocks == 0) {
+	TRACE("uncompress_table: %d metadata blocks\n", num_blocks);
+	if (num_blocks == 0) {
 		goto fail_exit;
 	}
 
 	// Reserve space for decompressed metadata blocks.
-	void *table_data = malloc(blocks * SQUASHFS_METADATA_SIZE);
+	void *table_data = malloc(num_blocks * SQUASHFS_METADATA_SIZE);
 	if (!table_data) {
 		goto fail_exit;
 	}
@@ -963,7 +965,7 @@ void *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
 		return NULL;
 	}
 
-	void *buf = calloc(1, i.data + 1);
+	void *buf = calloc(1, i.file_size + 1);
 	if (!buf) {
 		ERROR("Unable to allocate file extraction buffer\n");
 		return NULL;
