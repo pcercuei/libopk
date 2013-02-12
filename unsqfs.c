@@ -318,6 +318,7 @@ struct pathnames {
 
 struct metadata_table {
 	struct hash_table_entry *hash_table[HASH_TABLE_SIZE];
+	struct PkgData *pdata;
 };
 
 struct PkgData {
@@ -476,33 +477,51 @@ static int calculate_hash(long long cstart)
 	return cstart & (HASH_TABLE_SIZE - 1);
 }
 
-static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
-		long long cnext, void *udata, int usize)
+static struct hash_table_entry *load_entry(struct PkgData *pdata,
+		long long cstart)
 {
+	// Allocate space for decompressed metadata block.
+	void *udata = malloc(SQUASHFS_METADATA_SIZE);
+	if (!udata) {
+		ERROR("Failed to allocate metadata block\n");
+		return NULL;
+	}
+
+	long long cnext;
+	int usize = read_metadata_block(pdata, cstart, &cnext, udata);
+	if (usize == 0) {
+		ERROR("Failed to read metadata block\n");
+		free(udata);
+		return NULL;
+	}
+
 	struct hash_table_entry *entry = malloc(sizeof(struct hash_table_entry));
 	if (!entry) {
 		ERROR("Failed to allocate hash table entry\n");
-		return false;
+		free(udata);
+		return NULL;
 	}
-
-	const int hash = calculate_hash(cstart);
 	entry->cstart = cstart;
 	entry->cnext = cnext;
 	entry->udata = udata;
 	entry->usize = usize;
-	entry->next = hash_table[hash];
-	hash_table[hash] = entry;
+	entry->next = NULL;
 
-	return true;
+	return entry;
 }
 
-static struct hash_table_entry *lookup_entry(struct metadata_table *table,
+static const struct hash_table_entry *fetch_entry(struct metadata_table *table,
 		long long cstart)
 {
 	struct hash_table_entry **hash_table = table->hash_table;
-	struct hash_table_entry *entry = hash_table[calculate_hash(cstart)];
+	const int hash = calculate_hash(cstart);
+	struct hash_table_entry *entry = hash_table[hash];
 	while (entry && entry->cstart != cstart) {
 		entry = entry->next;
+	}
+	if (!entry) {
+		entry = load_entry(table->pdata, cstart);
+		hash_table[hash] = entry;
 	}
 	return entry;
 }
@@ -532,7 +551,7 @@ static bool init_metadata_accessor(
 		struct metadata_table *table,
 		squashfs_block start_block, unsigned short offset)
 {
-	const struct hash_table_entry *entry = lookup_entry(table, start_block);
+	const struct hash_table_entry *entry = fetch_entry(table, start_block);
 	if (!entry) {
 		ERROR("Table block %lld not found\n", start_block);
 		return false;
@@ -561,7 +580,7 @@ static bool read_metadata(
 		if (num_bytes != 0) {
 			// Next block.
 			long long start_block = entry->cnext;
-			entry = lookup_entry(accessor->table, start_block);
+			entry = fetch_entry(accessor->table, start_block);
 			accessor->entry = entry;
 			if (!entry) {
 				ERROR("Table block %lld not found\n", start_block);
@@ -867,40 +886,6 @@ static bool read_super(struct PkgData *pdata, const char *source)
 	}
 }
 
-static bool uncompress_table(struct PkgData *pdata,
-		struct metadata_table *table,
-		const long long cstart, const long long cend)
-{
-	TRACE("uncompress_table: start %lld, end %lld\n", cstart, cend);
-
-	struct hash_table_entry **hash_table = table->hash_table;
-
-	for (long long coff = cstart; coff < cend; ) {
-		TRACE("uncompress_table: reading block 0x%llx\n", coff);
-
-		// Allocate space for decompressed metadata block.
-		void *udata = malloc(SQUASHFS_METADATA_SIZE);
-		if (!udata) {
-			return false;
-		}
-
-		long long next;
-		int res = read_metadata_block(pdata, coff, &next, udata);
-		if (res == 0) {
-			ERROR("Failed to read table block\n");
-			free(udata);
-			return false;
-		}
-		if (!add_entry(hash_table, coff, next, udata, res)) {
-			free(udata);
-			return false;
-		}
-		coff = next;
-	}
-
-	return true;
-}
-
 static bool read_fragment_table(struct PkgData *pdata)
 {
 	const int indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
@@ -951,6 +936,8 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		ERROR("Unable to create data structure: %s\n", strerror(errno));
 		goto fail_exit;
 	}
+	pdata->inode_table.pdata = pdata;
+	pdata->directory_table.pdata = pdata;
 
 	if ((pdata->fd = open(image_name, O_RDONLY)) == -1) {
 		ERROR("Could not open %s: %s\n", image_name, strerror(errno));
@@ -960,22 +947,6 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 	TRACE("Loading superblock...\n");
 	if (!read_super(pdata, image_name)) {
 		ERROR("Could not read superblock\n");
-		goto fail_close;
-	}
-
-	TRACE("Loading inode table...\n");
-	if (!uncompress_table(pdata, &pdata->inode_table,
-			pdata->sBlk.inode_table_start,
-			pdata->sBlk.directory_table_start)) {
-		ERROR("Failed to read inode table\n");
-		goto fail_close;
-	}
-
-	TRACE("Loading directory table...\n");
-	if (!uncompress_table(pdata, &pdata->directory_table,
-			pdata->sBlk.directory_table_start,
-			pdata->sBlk.fragment_table_start)) {
-		ERROR("Failed to read directory table\n");
 		goto fail_close;
 	}
 
@@ -991,8 +962,6 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 fail_close:
 	close(pdata->fd);
 fail_free:
-	free_metadata_table(&pdata->inode_table);
-	free_metadata_table(&pdata->directory_table);
 	free(pdata->fragment_table);
 	free(pdata);
 fail_exit:
