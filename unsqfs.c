@@ -116,22 +116,6 @@ static inline squashfs_inode inode_address(
 	return ((squashfs_inode)block << 16) | offset;
 }
 
-/* fragment and fragment table defines */
-#define SQUASHFS_FRAGMENT_BYTES(A)	((A) * sizeof(struct squashfs_fragment_entry))
-
-#define SQUASHFS_FRAGMENT_INDEX(A)	(SQUASHFS_FRAGMENT_BYTES(A) / \
-					SQUASHFS_METADATA_SIZE)
-
-#define SQUASHFS_FRAGMENT_INDEX_OFFSET(A)	(SQUASHFS_FRAGMENT_BYTES(A) % \
-						SQUASHFS_METADATA_SIZE)
-
-#define SQUASHFS_FRAGMENT_INDEXES(A)	((SQUASHFS_FRAGMENT_BYTES(A) + \
-					SQUASHFS_METADATA_SIZE - 1) / \
-					SQUASHFS_METADATA_SIZE)
-
-#define SQUASHFS_FRAGMENT_INDEX_BYTES(A)	(SQUASHFS_FRAGMENT_INDEXES(A) *\
-						sizeof(long long))
-
 /*
  * definitions for structures on disk
  */
@@ -807,7 +791,10 @@ static void squashfs_closedir(struct dir *dir)
 
 static bool read_fragment_table(struct PkgData *pdata)
 {
-	const int indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
+	const size_t fragment_table_size =
+			pdata->sBlk.fragments * sizeof(struct squashfs_fragment_entry);
+	const int indexes = (fragment_table_size + SQUASHFS_METADATA_SIZE - 1)
+			/ SQUASHFS_METADATA_SIZE;
 
 	TRACE("read_fragment_table: %d fragments, reading %d fragment indexes "
 		"from 0x%llx\n", pdata->sBlk.fragments, indexes,
@@ -816,8 +803,7 @@ static bool read_fragment_table(struct PkgData *pdata)
 	if (pdata->sBlk.fragments == 0)
 		return true;
 
-	pdata->fragment_table = malloc(pdata->sBlk.fragments *
-			sizeof(struct squashfs_fragment_entry));
+	pdata->fragment_table = malloc(fragment_table_size);
 	if (!pdata->fragment_table) {
 		ERROR("Failed to allocate fragment table\n");
 		return false;
@@ -825,8 +811,7 @@ static bool read_fragment_table(struct PkgData *pdata)
 
 	long long fragment_table_index[indexes];
 	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
-			SQUASHFS_FRAGMENT_INDEX_BYTES(pdata->sBlk.fragments),
-			fragment_table_index)) {
+			sizeof(fragment_table_index), fragment_table_index)) {
 		ERROR("Failed to read fragment table index\n");
 		return false;
 	}
