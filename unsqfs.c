@@ -866,26 +866,6 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 
 // === Global data ===
 
-static bool read_super(struct PkgData *pdata, const char *source)
-{
-	/*
-	 * Try to read a Squashfs 4 superblock
-	 */
-	if (!read_fs_bytes(pdata->fd, SQUASHFS_START,
-			sizeof(struct squashfs_super_block), &pdata->sBlk)) {
-		ERROR("Failed to read SQUASHFS superblock on %s\n", source);
-		return false;
-	}
-
-	if(pdata->sBlk.s_magic == SQUASHFS_MAGIC && pdata->sBlk.s_major == 4 &&
-			pdata->sBlk.s_minor == 0) {
-		return true;
-	} else {
-		ERROR("Invalid SQUASHFS superblock on %s\n", source);
-		return false;
-	}
-}
-
 static bool read_fragment_table(struct PkgData *pdata)
 {
 	const int indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
@@ -940,13 +920,22 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 	pdata->directory_table.pdata = pdata;
 
 	if ((pdata->fd = open(image_name, O_RDONLY)) == -1) {
-		ERROR("Could not open %s: %s\n", image_name, strerror(errno));
+		ERROR("Could not open \"%s\": %s\n", image_name, strerror(errno));
 		goto fail_free;
 	}
 
 	TRACE("Loading superblock...\n");
-	if (!read_super(pdata, image_name)) {
-		ERROR("Could not read superblock\n");
+	if (!read_fs_bytes(pdata->fd, SQUASHFS_START,
+			sizeof(struct squashfs_super_block), &pdata->sBlk)) {
+		ERROR("Failed to read SQUASHFS superblock on \"%s\"\n", image_name);
+		goto fail_close;
+	}
+	if (pdata->sBlk.s_magic != SQUASHFS_MAGIC) {
+		ERROR("Invalid SQUASHFS superblock on \"%s\"\n", image_name);
+		goto fail_close;
+	}
+	if (pdata->sBlk.s_major != 4 || pdata->sBlk.s_minor != 0) {
+		ERROR("Unsupported SQUASHFS version on \"%s\"\n", image_name);
 		goto fail_close;
 	}
 
