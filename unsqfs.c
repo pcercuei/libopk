@@ -366,9 +366,10 @@ static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
 	return true;
 }
 
-struct hash_table_entry *lookup_entry(
-		struct hash_table_entry *hash_table[], long long cstart)
+static struct hash_table_entry *lookup_entry(struct metadata_table *table,
+		long long cstart)
 {
+	struct hash_table_entry **hash_table = table->hash_table;
 	struct hash_table_entry *entry = hash_table[calculate_hash(cstart)];
 	while (entry && entry->cstart != cstart) {
 		entry = entry->next;
@@ -477,8 +478,7 @@ static bool init_metadata_accessor(
 		struct metadata_table *table,
 		squashfs_block start_block, unsigned short offset)
 {
-	const struct hash_table_entry *entry =
-			lookup_entry(table->hash_table, start_block);
+	const struct hash_table_entry *entry = lookup_entry(table, start_block);
 	if (!entry) {
 		ERROR("Table block %lld not found\n", start_block);
 		return false;
@@ -507,7 +507,7 @@ static bool read_metadata(
 		if (num_bytes != 0) {
 			// Next block.
 			long long start_block = entry->cnext;
-			entry = lookup_entry(accessor->table->hash_table, start_block);
+			entry = lookup_entry(accessor->table, start_block);
 			accessor->entry = entry;
 			if (!entry) {
 				ERROR("Table block %lld not found\n", start_block);
