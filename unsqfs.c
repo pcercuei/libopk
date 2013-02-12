@@ -309,6 +309,7 @@ struct PkgData {
 	struct squashfs_super_block sBlk;
 	struct metadata_table inode_table;
 	struct metadata_table directory_table;
+	long long *fragment_table_index;
 	struct squashfs_fragment_entry *fragment_table;
 
 	int fd;
@@ -789,45 +790,72 @@ static void squashfs_closedir(struct dir *dir)
 
 // === File contents ===
 
-static bool read_fragment_table(struct PkgData *pdata)
+static long long *read_fragment_table_index(struct PkgData *pdata,
+		int num_table_blocks)
 {
-	const size_t fragment_table_size =
-			pdata->sBlk.fragments * sizeof(struct squashfs_fragment_entry);
-	const int indexes = (fragment_table_size + SQUASHFS_METADATA_SIZE - 1)
-			/ SQUASHFS_METADATA_SIZE;
+	TRACE("read_fragment_index: %d fragments, table spans %d metadata blocks, "
+			"index at 0x%llx\n", pdata->sBlk.fragments, num_table_blocks,
+			pdata->sBlk.fragment_table_start);
 
-	TRACE("read_fragment_table: %d fragments, reading %d fragment indexes "
-		"from 0x%llx\n", pdata->sBlk.fragments, indexes,
-		pdata->sBlk.fragment_table_start);
-
-	if (pdata->sBlk.fragments == 0)
-		return true;
-
-	pdata->fragment_table = malloc(fragment_table_size);
-	if (!pdata->fragment_table) {
-		ERROR("Failed to allocate fragment table\n");
-		return false;
-	}
-
-	long long fragment_table_index[indexes];
+	const size_t table_size = num_table_blocks * sizeof(long long);
+	long long *index = malloc(table_size);
 	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
-			sizeof(fragment_table_index), fragment_table_index)) {
+			table_size, index)) {
 		ERROR("Failed to read fragment table index\n");
-		return false;
+		free(index);
+		return NULL;
 	}
 
-	for (int i = 0; i < indexes; i++) {
-		int length = read_metadata_block(pdata, fragment_table_index[i], NULL,
-			((void *) pdata->fragment_table) + (i * SQUASHFS_METADATA_SIZE));
-		TRACE("Read fragment table block %d, from 0x%llx, length %d\n",
-			i, fragment_table_index[i], length);
-		if (length == 0) {
-			ERROR("Failed to read fragment table block %d\n", i);
-			return false;
+	return index;
+}
+
+static struct squashfs_fragment_entry *fetch_fragment_entry(
+		struct PkgData *pdata, int fragment)
+{
+	// Sanity check on fragment number.
+	if ((unsigned int)fragment >= pdata->sBlk.fragments) {
+		ERROR("Fragment out of range: %d of %u\n",
+				fragment, pdata->sBlk.fragments);
+		return NULL;
+	}
+
+	// Read fragment table index.
+	const size_t table_size =
+			pdata->sBlk.fragments * sizeof(struct squashfs_fragment_entry);
+	const int num_table_blocks = (table_size + SQUASHFS_METADATA_SIZE - 1)
+			/ SQUASHFS_METADATA_SIZE;
+	if (!pdata->fragment_table_index) {
+		if (!(pdata->fragment_table_index = read_fragment_table_index(
+				pdata, num_table_blocks))) {
+			return NULL;
 		}
 	}
 
-	return true;
+	// Read entire fragment table.
+	if (!pdata->fragment_table) {
+		void *table = malloc(table_size);
+		if (!table) {
+			ERROR("Failed to allocate fragment table\n");
+			return NULL;
+		}
+
+		for (int i = 0; i < num_table_blocks; i++) {
+			int length = read_metadata_block(pdata,
+					pdata->fragment_table_index[i], NULL,
+					table + i * SQUASHFS_METADATA_SIZE);
+			TRACE("Read fragment table block %d, from 0x%llx, length %d\n",
+					i, pdata->fragment_table_index[i], length);
+			if (length == 0) {
+				ERROR("Failed to read fragment table block %d\n", i);
+				free(table);
+				return NULL;
+			}
+		}
+
+		pdata->fragment_table = table;
+	}
+
+	return &pdata->fragment_table[fragment];
 }
 
 static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
@@ -865,8 +893,12 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 	if (inode->frag_bytes) {
 		TRACE("read_fragment: reading fragment %d\n", inode->fragment);
 
-		struct squashfs_fragment_entry *fragment_entry =
-				&pdata->fragment_table[inode->fragment];
+		const struct squashfs_fragment_entry *fragment_entry =
+				fetch_fragment_entry(pdata, inode->fragment);
+		if (!fragment_entry) {
+			ERROR("Failed to get info about fragment %d\n", inode->fragment);
+			return false;
+		}
 
 		void *data = malloc(pdata->sBlk.block_size);
 		if (!data) {
@@ -921,19 +953,12 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 		goto fail_close;
 	}
 
-	TRACE("Loading fragment table...\n");
-	if (!read_fragment_table(pdata)) {
-		ERROR("Failed to read fragment table\n");
-		goto fail_close;
-	}
-
 	TRACE("Done opening image.\n");
 	return pdata;
 
 fail_close:
 	close(pdata->fd);
 fail_free:
-	free(pdata->fragment_table);
 	free(pdata);
 fail_exit:
 	return NULL;
@@ -948,6 +973,7 @@ void opk_sqfs_close(struct PkgData *pdata)
 
 	free_metadata_table(&pdata->inode_table);
 	free_metadata_table(&pdata->directory_table);
+	free(pdata->fragment_table_index);
 	free(pdata->fragment_table);
 	free(pdata);
 }
