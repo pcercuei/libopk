@@ -38,6 +38,7 @@
  *    LDFLAGS += -lz -llzo2
  */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -59,6 +60,20 @@
 #endif
 
 #include "unsqfs.h"
+
+
+#if !defined(static_assert)
+#if __STDC_VERSION__ >= 201112L
+// glibc prior to 2.16 and uClibc lack this define
+#define static_assert _Static_assert
+#else
+#warning Compiling without static asserts
+#define static_assert(e, m)
+#endif
+#endif
+
+#define IS_POWER_OF_TWO(x) ((x) != 0 && ((x) & ((x) - 1)) == 0)
+
 
 #define SQUASHFS_MAGIC			0x73717368
 #define SQUASHFS_START			0
@@ -297,8 +312,9 @@ struct pathnames {
 };
 #define PATHS_ALLOC_SIZE 10
 
-// Size must be a power of two so we can do efficient modulo.
 #define HASH_TABLE_SIZE (1 << 16)
+static_assert(IS_POWER_OF_TWO(HASH_TABLE_SIZE),
+		"size must be a power of two so we can do efficient modulo");
 
 struct metadata_table {
 	struct hash_table_entry *hash_table[HASH_TABLE_SIZE];

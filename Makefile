@@ -14,7 +14,8 @@ CC = $(CROSS_COMPILE)gcc
 ANALYZER = clang --analyze
 INSTALL ?= install
 
-CFLAGS += -std=c99 -Wall -Wextra -fPIC \
+# Note: Code will compile as C99 too, but without static asserts.
+CFLAGS += -std=c11 -Wall -Wextra -fPIC \
 	-DUSE_GZIP=$(USE_GZIP) -DUSE_LZO=$(USE_LZO)
 ifeq ($(USE_GZIP),1)
 LDFLAGS += -lz
