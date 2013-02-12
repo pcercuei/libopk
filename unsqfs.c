@@ -313,8 +313,11 @@ struct pathnames {
 };
 #define PATHS_ALLOC_SIZE 10
 
+// Size must be a power of two so we can do efficient modulo.
+#define HASH_TABLE_SIZE (1 << 16)
+
 struct metadata_table {
-	struct hash_table_entry *hash_table[65536];
+	struct hash_table_entry *hash_table[HASH_TABLE_SIZE];
 	void *data;
 };
 
@@ -341,7 +344,7 @@ struct hash_table_entry {
 
 static int calculate_hash(long long cstart)
 {
-	return cstart & 0xffff;
+	return cstart & (HASH_TABLE_SIZE - 1);
 }
 
 static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
@@ -493,6 +496,20 @@ static bool read_metadata(
 	memcpy(dest, accessor->block_ptr + accessor->offset, num_bytes);
 	accessor->offset += num_bytes;
 	return true;
+}
+
+static void free_metadata_table(struct metadata_table *table)
+{
+	struct hash_table_entry **hash_table = table->hash_table;
+	for (unsigned int i = 0; i < HASH_TABLE_SIZE; i++) {
+		struct hash_table_entry *entry = hash_table[i];
+		while (entry) {
+			struct hash_table_entry *next = entry->next;
+			free(entry);
+			entry = next;
+		}
+	}
+	free(table->data);
 }
 
 struct inode {
@@ -962,8 +979,8 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 fail_close:
 	close(pdata->fd);
 fail_free:
-	free(pdata->inode_table.data);
-	free(pdata->directory_table.data);
+	free_metadata_table(&pdata->inode_table);
+	free_metadata_table(&pdata->directory_table);
 	free(pdata->fragment_table);
 	free(pdata);
 fail_exit:
@@ -977,8 +994,8 @@ void opk_sqfs_close(struct PkgData *pdata)
 
 	close(pdata->fd);
 
-	free(pdata->inode_table.data);
-	free(pdata->directory_table.data);
+	free_metadata_table(&pdata->inode_table);
+	free_metadata_table(&pdata->directory_table);
 	free(pdata->fragment_table);
 	free(pdata);
 }
