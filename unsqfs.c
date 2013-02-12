@@ -332,52 +332,6 @@ struct PkgData {
 };
 
 
-// === Hashtable ===
-
-struct hash_table_entry {
-	long long cstart, cnext;
-	void *udata;
-	size_t usize;
-	struct hash_table_entry *next;
-};
-
-static int calculate_hash(long long cstart)
-{
-	return cstart & (HASH_TABLE_SIZE - 1);
-}
-
-static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
-		long long cnext, void *udata, int usize)
-{
-	struct hash_table_entry *entry = malloc(sizeof(struct hash_table_entry));
-	if (!entry) {
-		ERROR("Failed to allocate hash table entry\n");
-		return false;
-	}
-
-	const int hash = calculate_hash(cstart);
-	entry->cstart = cstart;
-	entry->cnext = cnext;
-	entry->udata = udata;
-	entry->usize = usize;
-	entry->next = hash_table[hash];
-	hash_table[hash] = entry;
-
-	return true;
-}
-
-static struct hash_table_entry *lookup_entry(struct metadata_table *table,
-		long long cstart)
-{
-	struct hash_table_entry **hash_table = table->hash_table;
-	struct hash_table_entry *entry = hash_table[calculate_hash(cstart)];
-	while (entry && entry->cstart != cstart) {
-		entry = entry->next;
-	}
-	return entry;
-}
-
-
 // === Low-level I/O ===
 
 static bool read_fs_bytes(int fd, long long offset, int bytes, void *buf)
@@ -467,6 +421,106 @@ static int read_uncompressed(struct PkgData *pdata,
 
 // === High level I/O ===
 
+static int read_metadata_block(struct PkgData *pdata,
+		const long long start, long long *next, void *buf)
+{
+	long long offset = start;
+
+	unsigned short c_byte;
+	if (!read_fs_bytes(pdata->fd, offset, 2, &c_byte)) {
+		goto failed;
+	}
+	offset += 2;
+	int csize = SQUASHFS_COMPRESSED_SIZE(c_byte);
+
+	TRACE("read_metadata_block: block @0x%llx, %d %s bytes\n", start, csize,
+			SQUASHFS_COMPRESSED(c_byte) ? "compressed" : "uncompressed");
+
+	const int usize = SQUASHFS_COMPRESSED(c_byte)
+		? read_compressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE)
+		: read_uncompressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE);
+	if (usize < 0) {
+		goto failed;
+	}
+
+	offset += csize;
+	if (next) *next = offset;
+	return usize;
+
+failed:
+	ERROR("Failed to read metadata block @0x%llx\n", start);
+	return 0;
+}
+
+static int read_data_block(struct PkgData *pdata, void *buf, int buf_size,
+		long long offset, int c_byte)
+{
+	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
+	return SQUASHFS_COMPRESSED_BLOCK(c_byte)
+		? read_compressed(pdata, offset, csize, buf, buf_size)
+		: read_uncompressed(pdata, offset, csize, buf, buf_size);
+}
+
+
+// === Metadata table ===
+
+struct hash_table_entry {
+	long long cstart, cnext;
+	void *udata;
+	size_t usize;
+	struct hash_table_entry *next;
+};
+
+static int calculate_hash(long long cstart)
+{
+	return cstart & (HASH_TABLE_SIZE - 1);
+}
+
+static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
+		long long cnext, void *udata, int usize)
+{
+	struct hash_table_entry *entry = malloc(sizeof(struct hash_table_entry));
+	if (!entry) {
+		ERROR("Failed to allocate hash table entry\n");
+		return false;
+	}
+
+	const int hash = calculate_hash(cstart);
+	entry->cstart = cstart;
+	entry->cnext = cnext;
+	entry->udata = udata;
+	entry->usize = usize;
+	entry->next = hash_table[hash];
+	hash_table[hash] = entry;
+
+	return true;
+}
+
+static struct hash_table_entry *lookup_entry(struct metadata_table *table,
+		long long cstart)
+{
+	struct hash_table_entry **hash_table = table->hash_table;
+	struct hash_table_entry *entry = hash_table[calculate_hash(cstart)];
+	while (entry && entry->cstart != cstart) {
+		entry = entry->next;
+	}
+	return entry;
+}
+
+static void free_metadata_table(struct metadata_table *table)
+{
+	struct hash_table_entry **hash_table = table->hash_table;
+	for (unsigned int i = 0; i < HASH_TABLE_SIZE; i++) {
+		struct hash_table_entry *entry = hash_table[i];
+		while (entry) {
+			struct hash_table_entry *next = entry->next;
+			free(entry->udata);
+			free(entry);
+			entry = next;
+		}
+	}
+}
+
 struct metadata_accessor {
 	struct metadata_table *table;
 	const struct hash_table_entry *entry;
@@ -521,19 +575,8 @@ static bool read_metadata(
 	return true;
 }
 
-static void free_metadata_table(struct metadata_table *table)
-{
-	struct hash_table_entry **hash_table = table->hash_table;
-	for (unsigned int i = 0; i < HASH_TABLE_SIZE; i++) {
-		struct hash_table_entry *entry = hash_table[i];
-		while (entry) {
-			struct hash_table_entry *next = entry->next;
-			free(entry->udata);
-			free(entry);
-			entry = next;
-		}
-	}
-}
+
+// === Inodes ===
 
 struct inode {
 	int num_blocks;
@@ -635,107 +678,10 @@ static bool read_inode(struct PkgData *pdata,
 			break;
 		}
 		default:
-			TRACE("read_inode: skipping inode type %d\n", header.base.inode_type);
+			TRACE("read_inode: skipping inode type %d\n",
+					header.base.inode_type);
 			return false;
 	}
-	return true;
-}
-
-static int read_metadata_block(struct PkgData *pdata,
-		const long long start, long long *next, void *buf)
-{
-	long long offset = start;
-
-	unsigned short c_byte;
-	if (!read_fs_bytes(pdata->fd, offset, 2, &c_byte)) {
-		goto failed;
-	}
-	offset += 2;
-	int csize = SQUASHFS_COMPRESSED_SIZE(c_byte);
-
-	TRACE("read_metadata_block: block @0x%llx, %d %s bytes\n", start, csize,
-			SQUASHFS_COMPRESSED(c_byte) ? "compressed" : "uncompressed");
-
-	const int usize = SQUASHFS_COMPRESSED(c_byte)
-		  ? read_compressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE)
-		  : read_uncompressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE);
-	if (usize < 0) {
-		goto failed;
-	}
-
-	offset += csize;
-	if (next) *next = offset;
-	return usize;
-
-failed:
-	ERROR("Failed to read metadata block @0x%llx\n", start);
-	return 0;
-}
-
-static int read_data_block(struct PkgData *pdata, void *buf, int buf_size,
-		long long offset, int c_byte)
-{
-	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
-	return SQUASHFS_COMPRESSED_BLOCK(c_byte)
-		? read_compressed(pdata, offset, csize, buf, buf_size)
-		: read_uncompressed(pdata, offset, csize, buf, buf_size);
-}
-
-static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
-{
-	TRACE("write_buf: regular file, %d blocks\n", inode->num_blocks);
-
-	const int file_end = inode->file_size / pdata->sBlk.block_size;
-	long long start = inode->start;
-	for (int i = 0; i < inode->num_blocks; i++) {
-		int size =
-			  i == file_end
-			? inode->file_size & (pdata->sBlk.block_size - 1)
-			: pdata->sBlk.block_size;
-
-		unsigned int c_byte;
-		if (!read_metadata(&inode->accessor, &c_byte, sizeof(c_byte))) {
-			return false;
-		}
-		if (c_byte == 0) { // sparse file
-			memset(buf, 0, size);
-		} else {
-			const int usize = read_data_block(pdata, buf, size, start, c_byte);
-			if (usize < 0) {
-				return false;
-			} else if (usize != size) {
-				ERROR("Error: data block contains %d bytes, expected %d\n",
-						usize, size);
-				return false;
-			}
-			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
-		}
-		buf += size;
-	}
-
-	if (inode->frag_bytes) {
-		TRACE("read_fragment: reading fragment %d\n", inode->fragment);
-
-		struct squashfs_fragment_entry *fragment_entry =
-				&pdata->fragment_table[inode->fragment];
-
-		void *data = malloc(pdata->sBlk.block_size);
-		if (!data) {
-			ERROR("Failed to allocate block data buffer\n");
-			return false;
-		}
-
-		const int usize = read_data_block(pdata, data, pdata->sBlk.block_size,
-				fragment_entry->start_block, fragment_entry->size);
-		if (usize < 0) {
-			free(data);
-			return false;
-		}
-
-		memcpy(buf, data + inode->offset, inode->frag_bytes);
-		free(data);
-	}
-
 	return true;
 }
 
@@ -835,6 +781,67 @@ static void squashfs_closedir(struct dir *dir)
 {
 	free(dir->dirs);
 	free(dir);
+}
+
+
+// === File contents ===
+
+static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
+{
+	TRACE("write_buf: regular file, %d blocks\n", inode->num_blocks);
+
+	const int file_end = inode->file_size / pdata->sBlk.block_size;
+	long long start = inode->start;
+	for (int i = 0; i < inode->num_blocks; i++) {
+		int size =
+			  i == file_end
+			? inode->file_size & (pdata->sBlk.block_size - 1)
+			: pdata->sBlk.block_size;
+
+		unsigned int c_byte;
+		if (!read_metadata(&inode->accessor, &c_byte, sizeof(c_byte))) {
+			return false;
+		}
+		if (c_byte == 0) { // sparse file
+			memset(buf, 0, size);
+		} else {
+			const int usize = read_data_block(pdata, buf, size, start, c_byte);
+			if (usize < 0) {
+				return false;
+			} else if (usize != size) {
+				ERROR("Error: data block contains %d bytes, expected %d\n",
+						usize, size);
+				return false;
+			}
+			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
+		}
+		buf += size;
+	}
+
+	if (inode->frag_bytes) {
+		TRACE("read_fragment: reading fragment %d\n", inode->fragment);
+
+		struct squashfs_fragment_entry *fragment_entry =
+				&pdata->fragment_table[inode->fragment];
+
+		void *data = malloc(pdata->sBlk.block_size);
+		if (!data) {
+			ERROR("Failed to allocate block data buffer\n");
+			return false;
+		}
+
+		const int usize = read_data_block(pdata, data, pdata->sBlk.block_size,
+				fragment_entry->start_block, fragment_entry->size);
+		if (usize < 0) {
+			free(data);
+			return false;
+		}
+
+		memcpy(buf, data + inode->offset, inode->frag_bytes);
+		free(data);
+	}
+
+	return true;
 }
 
 
