@@ -318,7 +318,6 @@ struct pathnames {
 
 struct metadata_table {
 	struct hash_table_entry *hash_table[HASH_TABLE_SIZE];
-	void *data;
 };
 
 struct PkgData {
@@ -336,9 +335,9 @@ struct PkgData {
 // === Hashtable ===
 
 struct hash_table_entry {
-	long long cstart;
-	const void *udata;
-	int usize;
+	long long cstart, cnext;
+	void *udata;
+	size_t usize;
 	struct hash_table_entry *next;
 };
 
@@ -348,7 +347,7 @@ static int calculate_hash(long long cstart)
 }
 
 static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
-	const void *udata, int usize)
+		long long cnext, void *udata, int usize)
 {
 	struct hash_table_entry *entry = malloc(sizeof(struct hash_table_entry));
 	if (!entry) {
@@ -358,6 +357,7 @@ static bool add_entry(struct hash_table_entry *hash_table[], long long cstart,
 
 	const int hash = calculate_hash(cstart);
 	entry->cstart = cstart;
+	entry->cnext = cnext;
 	entry->udata = udata;
 	entry->usize = usize;
 	entry->next = hash_table[hash];
@@ -467,9 +467,9 @@ static int read_uncompressed(struct PkgData *pdata,
 // === High level I/O ===
 
 struct metadata_accessor {
-	squashfs_block start_block;
+	struct metadata_table *table;
+	const struct hash_table_entry *entry;
 	unsigned short offset;
-	const void *block_ptr;
 };
 
 static bool init_metadata_accessor(
@@ -483,9 +483,9 @@ static bool init_metadata_accessor(
 		ERROR("Table block %lld not found\n", start_block);
 		return false;
 	}
-	accessor->start_block = start_block;
+	accessor->table = table;
+	accessor->entry = entry;
 	accessor->offset = offset;
-	accessor->block_ptr = entry->udata;
 	return true;
 }
 
@@ -493,8 +493,31 @@ static bool read_metadata(
 		struct metadata_accessor *accessor,
 		void *dest, size_t num_bytes)
 {
-	memcpy(dest, accessor->block_ptr + accessor->offset, num_bytes);
-	accessor->offset += num_bytes;
+	const struct hash_table_entry *entry = accessor->entry;
+	unsigned int offset = accessor->offset;
+
+	while (num_bytes != 0) {
+		// Copy bytes from current block.
+		size_t step_bytes = offset + num_bytes <= entry->usize
+				? num_bytes : entry->usize - offset;
+		memcpy(dest, entry->udata + offset, step_bytes);
+		offset += step_bytes;
+		num_bytes -= step_bytes;
+
+		if (num_bytes != 0) {
+			// Next block.
+			long long start_block = entry->cnext;
+			entry = lookup_entry(accessor->table->hash_table, start_block);
+			accessor->entry = entry;
+			if (!entry) {
+				ERROR("Table block %lld not found\n", start_block);
+				return false;
+			}
+			offset = 0;
+		}
+	}
+
+	accessor->offset = offset;
 	return true;
 }
 
@@ -505,11 +528,11 @@ static void free_metadata_table(struct metadata_table *table)
 		struct hash_table_entry *entry = hash_table[i];
 		while (entry) {
 			struct hash_table_entry *next = entry->next;
+			free(entry->udata);
 			free(entry);
 			entry = next;
 		}
 	}
-	free(table->data);
 }
 
 struct inode {
@@ -843,50 +866,32 @@ static bool uncompress_table(struct PkgData *pdata,
 {
 	TRACE("uncompress_table: start %lld, end %lld\n", cstart, cend);
 
-	// Count blocks.
-	int num_blocks = 0;
-	for (long long coff = cstart; coff < cend; num_blocks++) {
-		unsigned short c_byte;
-		if (!read_fs_bytes(pdata->fd, coff, 2, &c_byte)) {
-			goto fail_exit;
-		}
-		coff += 2 + SQUASHFS_COMPRESSED_SIZE(c_byte);
-	}
-	TRACE("uncompress_table: %d metadata blocks\n", num_blocks);
-	if (num_blocks == 0) {
-		goto fail_exit;
-	}
-
-	// Reserve space for decompressed metadata blocks.
-	void *table_data = malloc(num_blocks * SQUASHFS_METADATA_SIZE);
-	if (!table_data) {
-		goto fail_exit;
-	}
-
 	struct hash_table_entry **hash_table = table->hash_table;
-	void *udata = table_data;
+
 	for (long long coff = cstart; coff < cend; ) {
 		TRACE("uncompress_table: reading block 0x%llx\n", coff);
+
+		// Allocate space for decompressed metadata block.
+		void *udata = malloc(SQUASHFS_METADATA_SIZE);
+		if (!udata) {
+			return false;
+		}
+
 		long long next;
 		int res = read_metadata_block(pdata, coff, &next, udata);
 		if (res == 0) {
 			ERROR("Failed to read table block\n");
-			goto fail_free;
+			free(udata);
+			return false;
 		}
-		if (!add_entry(hash_table, coff, udata, res)) {
-			goto fail_free;
+		if (!add_entry(hash_table, coff, next, udata, res)) {
+			free(udata);
+			return false;
 		}
 		coff = next;
-		udata += SQUASHFS_METADATA_SIZE;
 	}
 
-	table->data = table_data;
 	return true;
-
-fail_free:
-	free(table_data);
-fail_exit:
-	return false;
 }
 
 static bool read_fragment_table(struct PkgData *pdata)
