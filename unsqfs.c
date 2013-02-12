@@ -805,6 +805,46 @@ static void squashfs_closedir(struct dir *dir)
 
 // === File contents ===
 
+static bool read_fragment_table(struct PkgData *pdata)
+{
+	const int indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
+
+	TRACE("read_fragment_table: %d fragments, reading %d fragment indexes "
+		"from 0x%llx\n", pdata->sBlk.fragments, indexes,
+		pdata->sBlk.fragment_table_start);
+
+	if (pdata->sBlk.fragments == 0)
+		return true;
+
+	pdata->fragment_table = malloc(pdata->sBlk.fragments *
+			sizeof(struct squashfs_fragment_entry));
+	if (!pdata->fragment_table) {
+		ERROR("Failed to allocate fragment table\n");
+		return false;
+	}
+
+	long long fragment_table_index[indexes];
+	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
+			SQUASHFS_FRAGMENT_INDEX_BYTES(pdata->sBlk.fragments),
+			fragment_table_index)) {
+		ERROR("Failed to read fragment table index\n");
+		return false;
+	}
+
+	for (int i = 0; i < indexes; i++) {
+		int length = read_metadata_block(pdata, fragment_table_index[i], NULL,
+			((void *) pdata->fragment_table) + (i * SQUASHFS_METADATA_SIZE));
+		TRACE("Read fragment table block %d, from 0x%llx, length %d\n",
+			i, fragment_table_index[i], length);
+		if (length == 0) {
+			ERROR("Failed to read fragment table block %d\n", i);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 {
 	TRACE("write_buf: regular file, %d blocks\n", inode->num_blocks);
@@ -858,49 +898,6 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 
 		memcpy(buf, data + inode->offset, inode->frag_bytes);
 		free(data);
-	}
-
-	return true;
-}
-
-
-// === Global data ===
-
-static bool read_fragment_table(struct PkgData *pdata)
-{
-	const int indexes = SQUASHFS_FRAGMENT_INDEXES(pdata->sBlk.fragments);
-
-	TRACE("read_fragment_table: %d fragments, reading %d fragment indexes "
-		"from 0x%llx\n", pdata->sBlk.fragments, indexes,
-		pdata->sBlk.fragment_table_start);
-
-	if (pdata->sBlk.fragments == 0)
-		return true;
-
-	pdata->fragment_table = malloc(pdata->sBlk.fragments *
-			sizeof(struct squashfs_fragment_entry));
-	if (!pdata->fragment_table) {
-		ERROR("Failed to allocate fragment table\n");
-		return false;
-	}
-
-	long long fragment_table_index[indexes];
-	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
-			SQUASHFS_FRAGMENT_INDEX_BYTES(pdata->sBlk.fragments),
-			fragment_table_index)) {
-		ERROR("Failed to read fragment table index\n");
-		return false;
-	}
-
-	for (int i = 0; i < indexes; i++) {
-		int length = read_metadata_block(pdata, fragment_table_index[i], NULL,
-			((void *) pdata->fragment_table) + (i * SQUASHFS_METADATA_SIZE));
-		TRACE("Read fragment table block %d, from 0x%llx, length %d\n",
-			i, fragment_table_index[i], length);
-		if (length == 0) {
-			ERROR("Failed to read fragment table block %d\n", i);
-			return false;
-		}
 	}
 
 	return true;
