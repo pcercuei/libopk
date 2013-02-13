@@ -424,7 +424,7 @@ static int read_uncompressed(struct PkgData *pdata,
 // === High level I/O ===
 
 static int read_metadata_block(struct PkgData *pdata,
-		const long long start, long long *next, void *buf)
+		const long long start, long long *next, void *buf, size_t buf_size)
 {
 	long long offset = start;
 
@@ -439,8 +439,8 @@ static int read_metadata_block(struct PkgData *pdata,
 			SQUASHFS_COMPRESSED(c_byte) ? "compressed" : "uncompressed");
 
 	const int usize = SQUASHFS_COMPRESSED(c_byte)
-		? read_compressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE)
-		: read_uncompressed(pdata, offset, csize, buf, SQUASHFS_METADATA_SIZE);
+		? read_compressed(pdata, offset, csize, buf, buf_size)
+		: read_uncompressed(pdata, offset, csize, buf, buf_size);
 	if (usize < 0) {
 		goto failed;
 	}
@@ -489,7 +489,8 @@ static struct hash_table_entry *load_entry(struct PkgData *pdata,
 	}
 
 	long long cnext;
-	int usize = read_metadata_block(pdata, cstart, &cnext, udata);
+	int usize = read_metadata_block(pdata, cstart, &cnext,
+			udata, SQUASHFS_METADATA_SIZE);
 	if (usize == 0) {
 		ERROR("Failed to read metadata block\n");
 		free(udata);
@@ -884,25 +885,29 @@ static const struct squashfs_fragment_entry *fetch_fragment_entry(
 	}
 
 	// Allocate one fragment table block.
+	const size_t block_size =
+			  block_nr < pdata->sBlk.fragments / entries_per_block
+			? SQUASHFS_METADATA_SIZE
+			: (pdata->sBlk.fragments % entries_per_block)
+				* sizeof(struct squashfs_fragment_entry);
 	struct squashfs_fragment_entry *table_block;
-	if (!(table_block = malloc(SQUASHFS_METADATA_SIZE))) {
+	if (!(table_block = malloc(block_size))) {
 		ERROR("Failed to allocate fragment table\n");
 		return NULL;
 	}
 
 	// Load fragment table block.
-	int length = read_metadata_block(pdata, index[block_nr], NULL, table_block);
+	int length = read_metadata_block(pdata, index[block_nr], NULL,
+			table_block, block_size);
 	TRACE("Read fragment table block %u, from 0x%llx, length %d\n",
 			block_nr, index[block_nr], length);
 	if (length == 0) {
 		ERROR("Failed to read fragment table block %u\n", block_nr);
 		free(table_block);
 		return NULL;
-	} else if (!(length == SQUASHFS_METADATA_SIZE ||
-			block_nr * SQUASHFS_METADATA_SIZE + length == pdata->sBlk.fragments
-				* sizeof(struct squashfs_fragment_entry))) {
-		ERROR("Bad length reading fragment table block %u: %d\n",
-				block_nr, length);
+	} else if ((size_t)length != block_size) {
+		ERROR("Bad length reading fragment table block %u: "
+				"expected %lu, got %d\n", block_nr, block_size, length);
 		free(table_block);
 		return NULL;
 	}
