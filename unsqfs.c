@@ -39,6 +39,7 @@
  */
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -337,9 +338,10 @@ struct PkgData {
 
 // === Low-level I/O ===
 
-static bool read_fs_bytes(int fd, long long offset, int bytes, void *buf)
+static bool read_fs_bytes(const int fd, const long long offset,
+		void *buf, const size_t bytes)
 {
-	TRACE("read_bytes: reading from position 0x%llx, bytes %d\n",
+	TRACE("read_bytes: reading from position 0x%llx, bytes %lu\n",
 			offset, bytes);
 
 	if (lseek(fd, (off_t)offset, SEEK_SET) == -1) {
@@ -347,18 +349,19 @@ static bool read_fs_bytes(int fd, long long offset, int bytes, void *buf)
 		return false;
 	}
 
-	for (int res, count = 0; count < bytes; count += res) {
-		res = read(fd, buf + count, bytes - count);
+	size_t count = 0;
+	while (count < bytes) {
+		const int res = read(fd, buf + count, bytes - count);
 		if (res < 1) {
 			if (res == 0) {
 				ERROR("Error reading input: unexpected EOF\n");
 				return false;
-			} else if (errno == EINTR) {
-				res = 0;
-			} else {
+			} else if (errno != EINTR) {
 				ERROR("Error reading input: %s\n", strerror(errno));
 				return false;
 			}
+		} else {
+			count += res;
 		}
 	}
 
@@ -398,7 +401,7 @@ static int read_compressed(struct PkgData *pdata,
 
 	// Load compressed data into temporary buffer.
 	char tmp[csize];
-	if (!read_fs_bytes(pdata->fd, offset, csize, tmp)) {
+	if (!read_fs_bytes(pdata->fd, offset, tmp, csize)) {
 		return -1;
 	}
 
@@ -418,7 +421,7 @@ static int read_uncompressed(struct PkgData *pdata,
 		return -1;
 	}
 
-	return read_fs_bytes(pdata->fd, offset, csize, buf) ? csize : -1;
+	return read_fs_bytes(pdata->fd, offset, buf, csize) ? csize : -1;
 }
 
 
@@ -430,7 +433,7 @@ static int read_metadata_block(struct PkgData *pdata,
 	long long offset = start;
 
 	unsigned short c_byte;
-	if (!read_fs_bytes(pdata->fd, offset, 2, &c_byte)) {
+	if (!read_fs_bytes(pdata->fd, offset, &c_byte, 2)) {
 		goto failed;
 	}
 	offset += 2;
@@ -826,7 +829,7 @@ static long long *read_fragment_table_index(struct PkgData *pdata)
 	const size_t index_size = num_table_blocks * sizeof(long long);
 	long long *index = malloc(index_size);
 	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
-			index_size, index)) {
+			index, index_size)) {
 		ERROR("Failed to read fragment table index\n");
 		free(index);
 		return NULL;
@@ -993,7 +996,7 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 
 	TRACE("Loading superblock...\n");
 	if (!read_fs_bytes(pdata->fd, SQUASHFS_START,
-			sizeof(struct squashfs_super_block), &pdata->sBlk)) {
+			&pdata->sBlk, sizeof(pdata->sBlk))) {
 		ERROR("Failed to read SQUASHFS superblock on \"%s\"\n", image_name);
 		goto fail_close;
 	}
