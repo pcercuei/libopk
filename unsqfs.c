@@ -585,6 +585,7 @@ static bool read_metadata(
 		size_t step_bytes = offset + num_bytes <= entry->usize
 				? num_bytes : entry->usize - offset;
 		memcpy(dest, entry->udata + offset, step_bytes);
+		dest += step_bytes;
 		offset += step_bytes;
 		num_bytes -= step_bytes;
 
