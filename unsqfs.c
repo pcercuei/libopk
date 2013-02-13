@@ -390,8 +390,9 @@ static int squashfs_uncompress(const struct PkgData *pdata,
 	return -1;
 }
 
-static int read_compressed(struct PkgData *pdata,
-		long long offset, int csize, void *buf, int buf_size)
+static int read_compressed(const struct PkgData *pdata,
+		const long long offset, const size_t csize,
+		void *buf, const size_t buf_size)
 {
 	if (csize >= buf_size) {
 		// In the case compression doesn't make a block smaller,
@@ -414,15 +415,16 @@ static int read_compressed(struct PkgData *pdata,
 	return res;
 }
 
-static int read_uncompressed(struct PkgData *pdata,
-		long long offset, int csize, void *buf, int buf_size)
+static int read_uncompressed(const struct PkgData *pdata,
+		const long long offset, const size_t csize,
+		void *buf, const size_t buf_size)
 {
 	if (csize > buf_size) {
 		ERROR("Refusing to load oversized uncompressed block\n");
 		return -1;
 	}
 
-	return read_fs_bytes(pdata->fd, offset, buf, csize) ? csize : -1;
+	return read_fs_bytes(pdata->fd, offset, buf, csize) ? (int)csize : -1;
 }
 
 
