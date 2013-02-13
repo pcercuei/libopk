@@ -368,21 +368,22 @@ static bool read_fs_bytes(const int fd, const long long offset,
 	return true;
 }
 
-static int squashfs_uncompress(struct PkgData *pdata,
-		void *d, void *s, int size, int block_size, int *error)
+static int squashfs_uncompress(const struct PkgData *pdata,
+		void *dbuf, const size_t dsize, const void *sbuf, const size_t ssize,
+		int *error)
 {
 #if USE_GZIP
 	if (pdata->sBlk.compression == ZLIB_COMPRESSION) {
-		unsigned long bytes_zlib = block_size;
-		*error = uncompress(d, &bytes_zlib, s, size);
+		unsigned long bytes_zlib = dsize;
+		*error = uncompress(dbuf, &bytes_zlib, sbuf, ssize);
 		return *error == Z_OK ? (int) bytes_zlib : -1;
 	}
 #endif
 #if USE_LZO
 	if (pdata->sBlk.compression == LZO_COMPRESSION) {
-		lzo_uint bytes_lzo = block_size;
-		*error = lzo1x_decompress_safe(s, size, d, &bytes_lzo, NULL);
-		return *error == LZO_E_OK ? bytes_lzo : -1;
+		lzo_uint bytes_lzo = dsize;
+		*error = lzo1x_decompress_safe(sbuf, ssize, dbuf, &bytes_lzo, NULL);
+		return *error == LZO_E_OK ? (int)bytes_lzo : -1;
 	}
 #endif
 	*error = -EINVAL;
@@ -406,7 +407,7 @@ static int read_compressed(struct PkgData *pdata,
 	}
 
 	int error, res = squashfs_uncompress(
-			pdata, buf, tmp, csize, buf_size, &error);
+			pdata, buf, buf_size, tmp, csize, &error);
 	if (res == -1) {
 		ERROR("Uncompress failed with error code %d\n", error);
 	}
