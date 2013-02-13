@@ -291,9 +291,10 @@ struct dir_ent {
 };
 
 struct dir {
-	int		dir_count;
-	int 		cur_entry;
-	struct dir_ent	*dirs;
+	int dir_count;
+	int cur_entry;
+	struct dir_ent *dirs;
+	bool is_open;
 };
 
 struct path_entry {
@@ -330,7 +331,7 @@ struct PkgData {
 
 	int fd;
 
-	struct dir *dir;
+	struct dir dir;
 };
 
 
@@ -709,27 +710,21 @@ static bool read_inode(struct PkgData *pdata,
 
 // === Directories ===
 
-static struct dir *squashfs_opendir(struct PkgData *pdata,
-		squashfs_inode inode_addr)
+static bool squashfs_opendir(struct PkgData *pdata,
+		squashfs_inode inode_addr, struct dir *dir)
 {
 	TRACE("squashfs_opendir: inode %012llX\n", inode_addr);
 
 	struct inode i;
 	if (!read_inode(pdata, inode_addr, &i)) {
 		ERROR("Failed to read directory inode %012llX\n", inode_addr);
-		return NULL;
+		return false;
 	}
 
 	struct metadata_accessor accessor;
 	if (!init_metadata_accessor(&accessor, &pdata->directory_table,
 			pdata->sBlk.directory_table_start + i.start, i.offset)) {
-		return NULL;
-	}
-
-	struct dir *dir = malloc(sizeof(struct dir));
-	if (!dir) {
-		ERROR("Failed to allocate directory struct\n");
-		return NULL;
+		return false;
 	}
 
 	dir->dir_count = 0;
@@ -744,7 +739,7 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 	while (remaining > 0) {
 		struct squashfs_dir_header dirh;
 		if (!read_metadata(&accessor, &dirh, sizeof(dirh))) {
-			goto fail_free;
+			return false;
 		}
 		remaining -= sizeof(dirh);
 
@@ -754,10 +749,10 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 
 		while(dir_count--) {
 			if (!read_metadata(&accessor, dire, sizeof(*dire))) {
-				goto fail_free;
+				return false;
 			}
 			if (!read_metadata(&accessor, dire->name, dire->size + 1)) {
-				goto fail_free;
+				return false;
 			}
 			dire->name[dire->size + 1] = '\0';
 			remaining -= sizeof(*dire) + dire->size + 1;
@@ -770,7 +765,7 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 						* sizeof(struct dir_ent));
 				if (!new_dir) {
 					ERROR("Failed to (re)allocate directory contents\n");
-					goto fail_free;
+					return false;
 				}
 				dir->dirs = new_dir;
 			}
@@ -782,11 +777,8 @@ static struct dir *squashfs_opendir(struct PkgData *pdata,
 		}
 	}
 
-	return dir;
-
-fail_free:
-	free(dir);
-	return NULL;
+	dir->is_open = true;
+	return true;
 }
 
 static struct dir_ent *squashfs_dir_next(struct dir *dir)
@@ -801,7 +793,8 @@ static struct dir_ent *squashfs_dir_next(struct dir *dir)
 static void squashfs_closedir(struct dir *dir)
 {
 	free(dir->dirs);
-	free(dir);
+	dir->dirs = NULL;
+	dir->is_open = false;
 }
 
 
@@ -1026,8 +1019,7 @@ fail_exit:
 
 void opk_sqfs_close(struct PkgData *pdata)
 {
-	if (pdata->dir)
-		squashfs_closedir(pdata->dir);
+	squashfs_closedir(&pdata->dir);
 
 	close(pdata->fd);
 
@@ -1048,14 +1040,14 @@ void opk_sqfs_close(struct PkgData *pdata)
 static bool get_inode_from_dir(struct PkgData *pdata,
 		const char *name, squashfs_inode inode_addr, struct inode *i)
 {
-	struct dir *dir = squashfs_opendir(pdata, inode_addr);
-	if (!dir) {
+	struct dir dir;
+	if (!squashfs_opendir(pdata, inode_addr, &dir)) {
 		return false;
 	}
 
 	bool found = false;
 	struct dir_ent *ent;
-	while (!found && (ent = squashfs_dir_next(dir))) {
+	while (!found && (ent = squashfs_dir_next(&dir))) {
 		if (ent->type == SQUASHFS_DIR_TYPE) {
 			found = get_inode_from_dir(pdata, name, ent->inode_addr, i);
 		} else if (!strcmp(ent->name, name)) {
@@ -1063,7 +1055,7 @@ static bool get_inode_from_dir(struct PkgData *pdata,
 		}
 	}
 
-	squashfs_closedir(dir);
+	squashfs_closedir(&dir);
 	return found;
 }
 
@@ -1093,15 +1085,14 @@ void *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
 
 const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 {
-	if (!pdata->dir) {
-		pdata->dir = squashfs_opendir(pdata, pdata->sBlk.root_inode);
-		if (!pdata->dir) {
+	if (!pdata->dir.is_open) {
+		if (!squashfs_opendir(pdata, pdata->sBlk.root_inode, &pdata->dir)) {
 			return NULL;
 		}
 	}
 
 	struct dir_ent *ent;
-	while ((ent = squashfs_dir_next(pdata->dir))) {
+	while ((ent = squashfs_dir_next(&pdata->dir))) {
 		if (ent->type == SQUASHFS_REG_TYPE || ent->type == SQUASHFS_LREG_TYPE) {
 			char *ptr = strrchr(ent->name, '.');
 			if (ptr && !strcmp(ptr + 1, "desktop")) {
@@ -1110,7 +1101,6 @@ const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 		}
 	}
 
-	squashfs_closedir(pdata->dir);
-	pdata->dir = NULL;
+	squashfs_closedir(&pdata->dir);
 	return NULL;
 }
