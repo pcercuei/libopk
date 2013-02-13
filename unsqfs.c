@@ -430,8 +430,9 @@ static int read_uncompressed(const struct PkgData *pdata,
 
 // === High level I/O ===
 
-static int read_metadata_block(struct PkgData *pdata,
-		const long long start, long long *next, void *buf, size_t buf_size)
+static int read_metadata_block(const struct PkgData *pdata,
+		const long long start, long long *next,
+		void *buf, const size_t buf_size)
 {
 	long long offset = start;
 
@@ -461,10 +462,11 @@ failed:
 	return 0;
 }
 
-static int read_data_block(struct PkgData *pdata, void *buf, int buf_size,
-		long long offset, int c_byte)
+static int read_data_block(const struct PkgData *pdata,
+		void *buf, const size_t buf_size,
+		const long long offset, const unsigned int c_byte)
 {
-	const int csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
+	const size_t csize = SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
 	return SQUASHFS_COMPRESSED_BLOCK(c_byte)
 		? read_compressed(pdata, offset, csize, buf, buf_size)
 		: read_uncompressed(pdata, offset, csize, buf, buf_size);
