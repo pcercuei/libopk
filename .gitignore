@@ -1,3 +1,5 @@
 *.o
 libopk.so.*
 opkinfo
+libopk.plist
+unsqfs.plist
