@@ -1070,26 +1070,30 @@ static bool get_inode_from_dir(struct PkgData *pdata,
 
 // TODO: There is currently no way to tell apart "no such file" from other
 //       errors such as allocation failures.
-void *opk_sqfs_extract_file(struct PkgData *pdata, const char *name)
+int opk_sqfs_extract_file(struct PkgData *pdata, const char *name,
+		void **out_data, size_t *out_size)
 {
 	struct inode i;
 	if (!get_inode_from_dir(pdata, name, pdata->sBlk.root_inode, &i)) {
 		ERROR("Unable to find inode for path \"%s\"\n", name);
-		return NULL;
+		return -1;
 	}
 
 	void *buf = calloc(1, i.file_size + 1);
 	if (!buf) {
 		ERROR("Unable to allocate file extraction buffer\n");
-		return NULL;
+		return -1;
 	}
 
 	if (!write_buf(pdata, &i, buf)) {
 		free(buf);
-		return NULL;
+		return -1;
 	}
 
-	return buf;
+	*out_data = buf;
+	*out_size = i.file_size;
+
+	return 0;
 }
 
 const char *opk_sqfs_get_metadata(struct PkgData *pdata)

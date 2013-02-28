@@ -139,5 +139,11 @@ char *opk_read_param(struct ParserData *pdata, const char *name)
 
 void *opk_extract_file(struct ParserData *pdata, const char *name)
 {
-	return opk_sqfs_extract_file(pdata->pdata, name);
+	void *data;
+	size_t size;
+	if (opk_sqfs_extract_file(pdata->pdata, name, &data, &size)) {
+		return NULL;
+	} else {
+		return data;
+	}
 }
