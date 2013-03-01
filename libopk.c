@@ -20,6 +20,7 @@ struct ParserData {
 	SLIST_HEAD(Entries, Entry) head;
 	struct PkgData *pdata;
 	void *buf;
+	const void *meta_curr;
 };
 
 struct ParserData *opk_open(const char *opk_filename)
@@ -51,41 +52,62 @@ static void list_free(struct ParserData *pdata)
 	SLIST_INIT(&pdata->head);
 }
 
+static bool next_param(struct ParserData *pdata,
+		const char **key_chars, size_t *key_size,
+		const char **val_chars, size_t *val_size)
+{
+	const char *curr = pdata->meta_curr;
+
+	// Check for end of metadata.
+	if (!*curr) {
+		*key_chars = *val_chars = NULL;
+		*key_size = *val_size = 0;
+		return true;
+	}
+
+	// Parse key.
+	const char *key_start = curr;
+	while (*curr && *curr != '=') curr++;
+	if (!*curr) return false;
+	*key_chars = key_start;
+	*key_size = curr - key_start;
+
+	// Parse value.
+	curr++; // skip '='
+	const char *val_start = curr;
+	while (*curr && *curr != '\n') curr++;
+	*val_chars = val_start;
+	*val_size = curr - val_start;
+
+	// Save current position for next time.
+	if (*curr) curr++; // skip '\n'
+	pdata->meta_curr = curr;
+	return true;
+}
+
 static bool parse_params(struct ParserData *pdata)
 {
-	char *buf = pdata->buf + sizeof(HEADER);
-
-	/* Insert all the name=value couples found
-	 * on a linked list */
-	while(buf[0]) {
-		struct Entry *e = malloc(sizeof(*e));
-		e->name = buf;
-
-		while(buf[0] && (buf[0] != '='))
-			buf++;
-
-		if (!buf[0]) {
+	while (true) {
+		// Parse key-value pair.
+		const char *key_chars, *val_chars;
+		size_t key_size, val_size;
+		if (!next_param(pdata, &key_chars, &key_size, &val_chars, &val_size)) {
 			fprintf(stderr, "Error reading metadata\n");
-			free(e);
 			list_free(pdata);
 			return false;
 		}
+		if (!key_chars) {
+			return true;
+		}
 
-		buf[0] = '\0';
-		e->value = ++buf;
-
-		while(buf[0] && (buf[0] != '\n'))
-			buf++;
-
+		// Insert key-value pair into linked list.
+		struct Entry *e = malloc(sizeof(*e));
+		((char *)key_chars)[key_size] = '\0';
+		e->name = (char *)key_chars;
+		((char *)val_chars)[val_size] = '\0';
+		e->value = (char *)val_chars;
 		SLIST_INSERT_HEAD(&pdata->head, e, next);
-
-		if (buf[0])
-			(buf++)[0] = '\0';
-		else
-			break;
 	}
-
-	return true;
 }
 
 const char *opk_open_metadata(struct ParserData *pdata)
@@ -112,6 +134,7 @@ const char *opk_open_metadata(struct ParserData *pdata)
 		free(buf);
 		return NULL;
 	}
+	pdata->meta_curr = buf + sizeof(HEADER);
 
 	pdata->buf = buf;
 	if (!parse_params(pdata)) {
