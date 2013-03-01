@@ -1,4 +1,5 @@
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -50,6 +51,43 @@ static void list_free(struct ParserData *pdata)
 	SLIST_INIT(&pdata->head);
 }
 
+static bool parse_params(struct ParserData *pdata)
+{
+	char *buf = pdata->buf + sizeof(HEADER);
+
+	/* Insert all the name=value couples found
+	 * on a linked list */
+	while(buf[0]) {
+		struct Entry *e = malloc(sizeof(*e));
+		e->name = buf;
+
+		while(buf[0] && (buf[0] != '='))
+			buf++;
+
+		if (!buf[0]) {
+			fprintf(stderr, "Error reading metadata\n");
+			free(e);
+			list_free(pdata);
+			return false;
+		}
+
+		buf[0] = '\0';
+		e->value = ++buf;
+
+		while(buf[0] && (buf[0] != '\n'))
+			buf++;
+
+		SLIST_INSERT_HEAD(&pdata->head, e, next);
+
+		if (buf[0])
+			(buf++)[0] = '\0';
+		else
+			break;
+	}
+
+	return true;
+}
+
 const char *opk_open_metadata(struct ParserData *pdata)
 {
 	/* Free previous meta-data information */
@@ -76,37 +114,8 @@ const char *opk_open_metadata(struct ParserData *pdata)
 	}
 
 	pdata->buf = buf;
-
-	buf += sizeof(HEADER);
-
-	/* Insert all the name=value couples found
-	 * on a linked list */
-	while(buf[0]) {
-		struct Entry *e = malloc(sizeof(*e));
-		e->name = buf;
-
-		while(buf[0] && (buf[0] != '='))
-			buf++;
-
-		if (!buf[0]) {
-			fprintf(stderr, "Error reading metadata\n");
-			free(e);
-			list_free(pdata);
-			return NULL;
-		}
-
-		buf[0] = '\0';
-		e->value = ++buf;
-
-		while(buf[0] && (buf[0] != '\n'))
-			buf++;
-
-		SLIST_INSERT_HEAD(&pdata->head, e, next);
-
-		if (buf[0])
-			(buf++)[0] = '\0';
-		else
-			break;
+	if (!parse_params(pdata)) {
+		return NULL;
 	}
 
 	return name;
