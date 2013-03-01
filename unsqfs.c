@@ -1079,7 +1079,7 @@ int opk_sqfs_extract_file(struct PkgData *pdata, const char *name,
 		return -1;
 	}
 
-	void *buf = calloc(1, i.file_size + 1);
+	void *buf = malloc(i.file_size);
 	if (!buf) {
 		ERROR("Unable to allocate file extraction buffer\n");
 		return -1;

@@ -20,6 +20,7 @@ struct ParserData {
 	SLIST_HEAD(Entries, Entry) head;
 	struct PkgData *pdata;
 	void *buf;
+	void *buf_end;
 	const void *meta_curr;
 };
 
@@ -46,6 +47,8 @@ static void list_free(struct ParserData *pdata)
 	while (!SLIST_EMPTY(&pdata->head)) {
 		struct Entry *entry = SLIST_FIRST(&pdata->head);
 		SLIST_REMOVE_HEAD(&pdata->head, next);
+		free(entry->name);
+		free(entry->value);
 		free(entry);
 	}
 
@@ -57,9 +60,10 @@ static bool next_param(struct ParserData *pdata,
 		const char **val_chars, size_t *val_size)
 {
 	const char *curr = pdata->meta_curr;
+	const char *end = pdata->buf_end;
 
 	// Check for end of metadata.
-	if (!*curr) {
+	if (curr == end) {
 		*key_chars = *val_chars = NULL;
 		*key_size = *val_size = 0;
 		return true;
@@ -67,20 +71,20 @@ static bool next_param(struct ParserData *pdata,
 
 	// Parse key.
 	const char *key_start = curr;
-	while (*curr && *curr != '=') curr++;
-	if (!*curr) return false;
+	while (curr != end && *curr != '=') curr++;
+	if (curr == end) return false;
 	*key_chars = key_start;
 	*key_size = curr - key_start;
 
 	// Parse value.
 	curr++; // skip '='
 	const char *val_start = curr;
-	while (*curr && *curr != '\n') curr++;
+	while (curr != end && *curr != '\n') curr++;
 	*val_chars = val_start;
 	*val_size = curr - val_start;
 
 	// Save current position for next time.
-	if (*curr) curr++; // skip '\n'
+	if (curr != end) curr++; // skip '\n'
 	pdata->meta_curr = curr;
 	return true;
 }
@@ -102,10 +106,8 @@ static bool parse_params(struct ParserData *pdata)
 
 		// Insert key-value pair into linked list.
 		struct Entry *e = malloc(sizeof(*e));
-		((char *)key_chars)[key_size] = '\0';
-		e->name = (char *)key_chars;
-		((char *)val_chars)[val_size] = '\0';
-		e->value = (char *)val_chars;
+		e->name  = strndup(key_chars, key_size);
+		e->value = strndup(val_chars, val_size);
 		SLIST_INSERT_HEAD(&pdata->head, e, next);
 	}
 }
@@ -124,19 +126,23 @@ const char *opk_open_metadata(struct ParserData *pdata)
 		return NULL;
 
 	/* Extract the meta-data from the OD package */
-	char *buf = opk_extract_file(pdata, name);
-	if (!buf)
+	void *buf;
+	size_t buf_size;
+	if (opk_sqfs_extract_file(pdata->pdata, name, &buf, &buf_size)) {
 		return NULL;
+	}
 
 	/* Check for standard .desktop header */
-	if (strncmp(buf, HEADER, sizeof(HEADER) - 1)) {
-		fprintf(stderr, "Unrecognized metadata\n");
+	if (buf_size < sizeof(HEADER) - 1
+			|| strncmp(buf, HEADER, sizeof(HEADER) - 1)) {
+		fprintf(stderr, "%s: not a proper desktop entry file\n", name);
 		free(buf);
 		return NULL;
 	}
 	pdata->meta_curr = buf + sizeof(HEADER);
 
 	pdata->buf = buf;
+	pdata->buf_end = buf + buf_size;
 	if (!parse_params(pdata)) {
 		return NULL;
 	}

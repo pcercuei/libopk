@@ -15,7 +15,7 @@ ANALYZER = clang --analyze
 INSTALL ?= install
 
 # Note: Code will compile as C99 too, but without static asserts.
-CFLAGS += -std=c11 -Wall -Wextra -fPIC \
+CFLAGS += -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -fPIC \
 	-DUSE_GZIP=$(USE_GZIP) -DUSE_LZO=$(USE_LZO)
 ifeq ($(USE_GZIP),1)
 LDFLAGS += -lz
