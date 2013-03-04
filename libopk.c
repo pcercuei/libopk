@@ -8,7 +8,8 @@
 #include "opk.h"
 #include "unsqfs.h"
 
-#define HEADER "[Desktop Entry]"
+#define HEADER "[Desktop Entry]\n"
+#define HEADER_LEN (sizeof(HEADER) - 1)
 
 struct Entry {
 	SLIST_ENTRY(Entry) next;
@@ -55,10 +56,31 @@ static void list_free(struct ParserData *pdata)
 	SLIST_INIT(&pdata->head);
 }
 
+static void skip_comments(struct ParserData *pdata)
+{
+	const char *curr = pdata->meta_curr;
+	const void *end = pdata->buf_end;
+
+	while (true) {
+		if (curr == end) {
+			break;
+		} else if (*curr == '\n') {
+			curr++;
+		} else if (*curr == '#') {
+			do { curr++; } while (curr != end && *curr != '\n');
+		} else {
+			break;
+		}
+	}
+
+	pdata->meta_curr = curr;
+}
+
 static bool next_param(struct ParserData *pdata,
 		const char **key_chars, size_t *key_size,
 		const char **val_chars, size_t *val_size)
 {
+	skip_comments(pdata);
 	const char *curr = pdata->meta_curr;
 	const char *end = pdata->buf_end;
 
@@ -131,18 +153,19 @@ const char *opk_open_metadata(struct ParserData *pdata)
 	if (opk_sqfs_extract_file(pdata->pdata, name, &buf, &buf_size)) {
 		return NULL;
 	}
-
-	/* Check for standard .desktop header */
-	if (buf_size < sizeof(HEADER) - 1
-			|| strncmp(buf, HEADER, sizeof(HEADER) - 1)) {
-		fprintf(stderr, "%s: not a proper desktop entry file\n", name);
-		free(buf);
-		return NULL;
-	}
-	pdata->meta_curr = buf + sizeof(HEADER);
-
 	pdata->buf = buf;
 	pdata->buf_end = buf + buf_size;
+	pdata->meta_curr = buf;
+
+	/* Check for mandatory "Desktop Entry" group (acts as a kind of header) */
+	skip_comments(pdata);
+	if (pdata->meta_curr + HEADER_LEN > pdata->buf_end
+			|| strncmp(pdata->meta_curr, HEADER, HEADER_LEN)) {
+		fprintf(stderr, "%s: not a proper desktop entry file\n", name);
+		return NULL;
+	}
+	pdata->meta_curr += HEADER_LEN;
+
 	if (!parse_params(pdata)) {
 		return NULL;
 	}
