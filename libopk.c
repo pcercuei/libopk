@@ -84,8 +84,8 @@ static bool next_param(struct ParserData *pdata,
 	const char *curr = pdata->meta_curr;
 	const char *end = pdata->buf_end;
 
-	// Check for end of metadata.
-	if (curr == end) {
+	// Check for end of metadata or end of "Desktop Entry" group.
+	if (curr == end || *curr == '[') {
 		*key_chars = *val_chars = NULL;
 		*key_size = *val_size = 0;
 		return true;
