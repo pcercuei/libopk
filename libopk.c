@@ -93,13 +93,24 @@ static bool next_param(struct ParserData *pdata,
 
 	// Parse key.
 	const char *key_start = curr;
-	while (curr != end && *curr != '=') curr++;
-	if (curr == end) return false;
+	while (curr != end && *curr != '=' && *curr > ' ') curr++;
 	*key_chars = key_start;
 	*key_size = curr - key_start;
 
+	// Skip whitespace.
+	while (curr != end && (*curr == ' ' || *curr == '\t')) curr++;
+
+	// Skip equals sign.
+	if (curr != end && *curr == '=') {
+		curr++;
+	} else {
+		return false;
+	}
+
+	// Skip whitespace.
+	while (curr != end && (*curr == ' ' || *curr == '\t')) curr++;
+
 	// Parse value.
-	curr++; // skip '='
 	const char *val_start = curr;
 	while (curr != end && *curr != '\n') curr++;
 	*val_chars = val_start;
