@@ -909,7 +909,7 @@ static const struct squashfs_fragment_entry *fetch_fragment_entry(
 		return NULL;
 	} else if ((size_t)length != block_size) {
 		ERROR("Bad length reading fragment table block %u: "
-				"expected %lu, got %d\n", block_nr, block_size, length);
+				"expected %zu, got %d\n", block_nr, block_size, length);
 		free(table_block);
 		return NULL;
 	}
