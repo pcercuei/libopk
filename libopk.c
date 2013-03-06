@@ -5,7 +5,12 @@
 #include <string.h>
 #include <sys/queue.h>
 
+// Public interface.
+#pragma GCC visibility push(default)
 #include "opk.h"
+#pragma GCC visibility pop
+
+// Internal interfaces.
 #include "unsqfs.h"
 
 #define HEADER "[Desktop Entry]\n"
