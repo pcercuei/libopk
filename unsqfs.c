@@ -1055,15 +1055,38 @@ static bool get_inode_from_dir(struct PkgData *pdata,
 	}
 
 	bool found = false;
-	struct dir_ent *ent;
-	while (!found && (ent = squashfs_dir_next(&dir))) {
-		if (ent->type == SQUASHFS_DIR_TYPE) {
-			found = get_inode_from_dir(pdata, name, ent->inode_addr, i);
-		} else if (!strcmp(ent->name, name)) {
-			found = read_inode(pdata, ent->inode_addr, i);
+	const char *dirsep = strchr(name, '/');
+	if (dirsep) {
+		// Look for subdir.
+		struct dir_ent *ent;
+		while ((ent = squashfs_dir_next(&dir))) {
+			if (ent->type == SQUASHFS_DIR_TYPE
+					|| ent->type == SQUASHFS_LDIR_TYPE) {
+				if (!strncmp(ent->name, name, dirsep - name)) {
+					if (!read_inode(pdata, ent->inode_addr, i)) {
+						goto exit_close;
+					}
+					found = get_inode_from_dir(
+							pdata, dirsep + 1, ent->inode_addr, i);
+					goto exit_close;
+				}
+			}
+		}
+	} else {
+		// Look for regular file.
+		struct dir_ent *ent;
+		while ((ent = squashfs_dir_next(&dir))) {
+			if (ent->type == SQUASHFS_REG_TYPE
+					|| ent->type == SQUASHFS_LREG_TYPE) {
+				if (!strcmp(ent->name, name)) {
+					found = read_inode(pdata, ent->inode_addr, i);
+					goto exit_close;
+				}
+			}
 		}
 	}
 
+exit_close:
 	squashfs_closedir(&dir);
 	return found;
 }
