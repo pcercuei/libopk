@@ -113,13 +113,8 @@ void opk_close(struct OPK *opk)
 	free(opk);
 }
 
-void *opk_extract_file(struct OPK *opk, const char *name)
+bool opk_extract_file(struct OPK *opk,
+			const char *name, void **data, size_t *size)
 {
-	void *data;
-	size_t size;
-	if (opk_sqfs_extract_file(opk->pdata, name, &data, &size)) {
-		return NULL;
-	} else {
-		return data;
-	}
+	return !opk_sqfs_extract_file(opk->pdata, name, data, size);
 }

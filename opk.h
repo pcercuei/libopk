@@ -19,7 +19,8 @@ bool opk_read_pair(struct OPK *opk,
 		const char **key_chars, size_t *key_size,
 		const char **val_chars, size_t *val_size);
 
-void *opk_extract_file(struct OPK *opk, const char *name);
+bool opk_extract_file(struct OPK *opk,
+			const char *name, void **data, size_t *size);
 
 #ifdef __cplusplus
 }
