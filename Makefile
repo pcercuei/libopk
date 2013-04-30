@@ -18,6 +18,8 @@ INSTALL ?= install
 CFLAGS += -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra \
 	-fPIC -fvisibility=hidden \
 	-DUSE_GZIP=$(USE_GZIP) -DUSE_LZO=$(USE_LZO)
+LDFLAGS += -lini
+
 ifeq ($(USE_GZIP),1)
 LDFLAGS += -lz
 endif
