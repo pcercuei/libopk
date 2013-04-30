@@ -21,18 +21,13 @@ static bool display_info(char *package_path) {
 		if (!metadata_name) {
 			break;
 		}
+
+		const char *key, *val;
+		size_t skey, sval;
 		printf("\n");
 		printf("Metadata file: %s\n\n", metadata_name);
-		printf("Name:          %s\n", opk_read_param(opk, "Name"));
-		printf("Comment:       %s\n", opk_read_param(opk, "Comment"));
-		printf("Type:          %s\n", opk_read_param(opk, "Type"));
-		printf("Categories:    %s\n", opk_read_param(opk, "Categories"));
-		printf("Icon:          %s\n", opk_read_param(opk, "Icon"));
-		printf("Exec:          %s\n", opk_read_param(opk, "Exec"));
-		printf("Terminal:      %s\n", opk_read_param(opk, "Terminal"));
-		printf("MimeType:      %s\n", opk_read_param(opk, "MimeType"));
-		printf("X-OD-Manual:   %s\n", opk_read_param(opk, "X-OD-Manual"));
-		printf("X-OD-Daemon:   %s\n", opk_read_param(opk, "X-OD-Daemon"));
+		while(opk_read_pair(opk, &key, &skey, &val, &sval) && key)
+			printf("%.*s: %.*s\n", (int) skey, key, (int) sval, val);
 	}
 
 	opk_close(opk);

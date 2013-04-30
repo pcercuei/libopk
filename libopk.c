@@ -16,14 +16,7 @@
 #define HEADER "[Desktop Entry]\n"
 #define HEADER_LEN (sizeof(HEADER) - 1)
 
-struct Entry {
-	SLIST_ENTRY(Entry) next;
-	char *name;
-	char *value;
-};
-
 struct OPK {
-	SLIST_HEAD(Entries, Entry) head;
 	struct PkgData *pdata;
 	void *buf;
 	void *buf_end;
@@ -43,22 +36,8 @@ struct OPK *opk_open(const char *opk_filename)
 	}
 
 	opk->buf = NULL;
-	SLIST_INIT(&opk->head);
 
 	return opk;
-}
-
-static void list_free(struct OPK *opk)
-{
-	while (!SLIST_EMPTY(&opk->head)) {
-		struct Entry *entry = SLIST_FIRST(&opk->head);
-		SLIST_REMOVE_HEAD(&opk->head, next);
-		free(entry->name);
-		free(entry->value);
-		free(entry);
-	}
-
-	SLIST_INIT(&opk->head);
 }
 
 static void skip_comments(struct OPK *opk)
@@ -81,7 +60,7 @@ static void skip_comments(struct OPK *opk)
 	opk->meta_curr = curr;
 }
 
-static bool next_param(struct OPK *opk,
+bool opk_read_pair(struct OPK *opk,
 		const char **key_chars, size_t *key_size,
 		const char **val_chars, size_t *val_size)
 {
@@ -127,33 +106,9 @@ static bool next_param(struct OPK *opk,
 	return true;
 }
 
-static bool parse_params(struct OPK *opk)
-{
-	while (true) {
-		// Parse key-value pair.
-		const char *key_chars, *val_chars;
-		size_t key_size, val_size;
-		if (!next_param(opk, &key_chars, &key_size, &val_chars, &val_size)) {
-			fprintf(stderr, "Error reading metadata\n");
-			list_free(opk);
-			return false;
-		}
-		if (!key_chars) {
-			return true;
-		}
-
-		// Insert key-value pair into linked list.
-		struct Entry *e = malloc(sizeof(*e));
-		e->name  = strndup(key_chars, key_size);
-		e->value = strndup(val_chars, val_size);
-		SLIST_INSERT_HEAD(&opk->head, e, next);
-	}
-}
-
 const char *opk_open_metadata(struct OPK *opk)
 {
 	/* Free previous meta-data information */
-	list_free(opk);
 	if (opk->buf)
 		free(opk->buf);
 	opk->buf = NULL;
@@ -182,10 +137,6 @@ const char *opk_open_metadata(struct OPK *opk)
 	}
 	opk->meta_curr += HEADER_LEN;
 
-	if (!parse_params(opk)) {
-		return NULL;
-	}
-
 	return name;
 }
 
@@ -193,25 +144,9 @@ void opk_close(struct OPK *opk)
 {
 	opk_sqfs_close(opk->pdata);
 
-	list_free(opk);
-
 	if (opk->buf)
 		free(opk->buf);
 	free(opk);
-}
-
-char *opk_read_param(struct OPK *opk, const char *name)
-{
-	struct Entry *entry;
-
-	/* Iterate on the linked list to find the
-	 * corresponding parameter, and return its value */
-	SLIST_FOREACH(entry, &opk->head, next) {
-		if (!strcmp(name, entry->name))
-			return entry->value;
-	}
-
-	return NULL;
 }
 
 void *opk_extract_file(struct OPK *opk, const char *name)
