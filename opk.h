@@ -6,15 +6,15 @@
 extern "C" {
 #endif
 
-struct ParserData;
+struct OPK;
 
-struct ParserData *opk_open(const char *opk_filename);
-void opk_close(struct ParserData *pdata);
+struct OPK *opk_open(const char *opk_filename);
+void opk_close(struct OPK *opk);
 
-const char *opk_open_metadata(struct ParserData *pdata);
-char *opk_read_param(struct ParserData *pdata, const char *name);
+const char *opk_open_metadata(struct OPK *opk);
+char *opk_read_param(struct OPK *opk, const char *name);
 
-void *opk_extract_file(struct ParserData *pdata, const char *name);
+void *opk_extract_file(struct OPK *opk, const char *name);
 
 #ifdef __cplusplus
 }

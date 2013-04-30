@@ -7,7 +7,7 @@
 static bool display_info(char *package_path) {
 	printf("=== %s\n", package_path);
 
-	struct ParserData *opk = opk_open(package_path);
+	struct OPK *opk = opk_open(package_path);
 	if (!opk) {
 		fprintf(stderr, "Failed to open %s\n", package_path);
 		printf("\n");
