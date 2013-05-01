@@ -6,7 +6,6 @@
 extern "C" {
 #endif
 
-#include <stdbool.h>
 #include <stdlib.h>
 
 struct OPK;
@@ -15,11 +14,32 @@ struct OPK *opk_open(const char *opk_filename);
 void opk_close(struct OPK *opk);
 
 const char *opk_open_metadata(struct OPK *opk);
-bool opk_read_pair(struct OPK *opk,
+
+/* Read a key/value pair.
+ * 'key_chars' and 'val_chars' must be valid pointers. The pointers passed
+ * as arguments will point to the key and value read. 'key_size' and
+ * 'val_size' are set to the length of their respective char arrays.
+ * XXX: the pointers will be invalid as soon as opk_close() is called.
+ *
+ * Returns:
+ *  -1 if an error occured,
+ *  0 if no more key/value pairs can be found,
+ *  1 otherwise.
+ */
+int opk_read_pair(struct OPK *opk,
 		const char **key_chars, size_t *key_size,
 		const char **val_chars, size_t *val_size);
 
-bool opk_extract_file(struct OPK *opk,
+/* Extract the file with the given filename from the OPK archive.
+ * The 'data' pointer is set to an allocated buffer containing
+ * the file's content. The 'size' variable is set to the length
+ * of the buffer, in bytes.
+ *
+ * Returns:
+ * -1 if an error occured,
+ *  0 otherwise.
+ */
+int opk_extract_file(struct OPK *opk,
 			const char *name, void **data, size_t *size);
 
 #ifdef __cplusplus

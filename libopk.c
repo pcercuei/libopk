@@ -1,6 +1,5 @@
 
 #include <ini.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -38,18 +37,12 @@ struct OPK *opk_open(const char *opk_filename)
 	return opk;
 }
 
-bool opk_read_pair(struct OPK *opk,
+int opk_read_pair(struct OPK *opk,
 		const char **key_chars, size_t *key_size,
 		const char **val_chars, size_t *val_size)
 {
-	int res = ini_read_pair(opk->ini,
+	return ini_read_pair(opk->ini,
 				key_chars, key_size, val_chars, val_size);
-	if (!res) {
-		*key_chars = *val_chars = NULL;
-		*key_size = *val_size = 0;
-	}
-
-	return res >= 0;
 }
 
 const char *opk_open_metadata(struct OPK *opk)
@@ -69,15 +62,12 @@ const char *opk_open_metadata(struct OPK *opk)
 	/* Extract the meta-data from the OD package */
 	void *buf;
 	size_t buf_size;
-	if (opk_sqfs_extract_file(opk->pdata, name, &buf, &buf_size)) {
+	if (opk_sqfs_extract_file(opk->pdata, name, &buf, &buf_size))
 		return NULL;
-	}
 
 	struct INI *ini = ini_open_mem(buf, buf_size);
-	if (!ini) {
-		free(buf);
-		return NULL;
-	}
+	if (!ini)
+		goto err_free_buf;
 
 	const char *section;
 	size_t section_len;
@@ -85,8 +75,8 @@ const char *opk_open_metadata(struct OPK *opk)
 	if (has_section < 0)
 		goto error_ini_close;
 
-	/* XXX: Should we accept a meta-data that doesn't have the
-	 * [Desktop Entry] section as the first one in the .desktop? */
+	/* The [Desktop Entry] section must be the first section of the
+	 * .desktop file. */
 	if (!has_section || strncmp(HEADER, section, section_len)) {
 		fprintf(stderr, "%s: not a proper desktop entry file\n", name);
 		goto error_ini_close;
@@ -98,6 +88,7 @@ const char *opk_open_metadata(struct OPK *opk)
 
 error_ini_close:
 	ini_close(ini);
+err_free_buf:
 	free(buf);
 	return NULL;
 }
@@ -113,8 +104,8 @@ void opk_close(struct OPK *opk)
 	free(opk);
 }
 
-bool opk_extract_file(struct OPK *opk,
+int opk_extract_file(struct OPK *opk,
 			const char *name, void **data, size_t *size)
 {
-	return !opk_sqfs_extract_file(opk->pdata, name, data, size);
+	return opk_sqfs_extract_file(opk->pdata, name, data, size);
 }
