@@ -1,0 +1,78 @@
+#!/usr/bin/env python
+#
+# Script to mount and launch OPK archives.
+#
+# Copyright 2013 Paul Cercueil <paul@crapouillou.net>
+
+from os  import chdir, mkdir, execl, system, putenv, getenv
+from sys import argv
+from opk import read_metadata
+
+enable_vtcon = True
+vtcon_bind_file = "/sys/devices/virtual/vtconsole/vtcon1/bind"
+
+def enable_vtcon():
+	with open(vtcon_bind_file, "w") as fd:
+		fd.write("1")
+
+
+def main():
+	if len(argv) < 3:
+		print "Usage: opkrun.py metadata_filename app.opk app_args..."
+		return 0
+
+	opk_mdata = read_metadata(argv[2])
+	if argv[1] not in opk_mdata.keys():
+		raise IOError("Metadata file not found in OPK")
+
+	mdata = opk_mdata[argv[1]]['Desktop Entry']
+	if mdata['Type'] != "Application":
+		raise IOError("Given metadata is not for an application")
+
+	elf = mdata['Exec']
+
+	if "%f" in elf:
+		if len(argv) < 4:
+			print "WARNING: Application expects one argument"
+		elif len(argv) > 4:
+			print "WARNING: Application expects one argument, but more were passed"
+		else:
+			elf.replace("%f", argv[3])
+
+	elif "%F" in elf:
+		if len(argv) < 4:
+			print "WARNING: Application expects arguments"
+		else:
+			args = argv[3]
+			for arg in argv[4:]:
+				args += " " + arg
+			elf.replace("%F", args)
+
+	elif len(argv) > 3:
+		print "WARNING: Arguments ignored, application doesn't need any"
+
+	mountpoint = "/mnt/" + mdata['Name']
+	try:
+		mkdir(mountpoint)
+	except OSError:
+		pass
+
+	mount_cmd = "mount -o loop,nosuid,ro " + argv[2] + " " + mountpoint
+	if system(mount_cmd) != 0:
+		raise IOError("Unable to mount OPK")
+
+	try:
+		if enable_vtcon and mdata["Terminal"].lower() == "true":
+			enable_vtcon()
+	except KeyError:
+		pass
+
+	elf += " ; umount -l " + mountpoint + " ; rmdir " + mountpoint
+
+	chdir(mountpoint)
+	putenv("PATH", getenv("PATH") + ":" + mountpoint)
+	execl("/bin/sh", "/bin/sh", "-c", elf)
+
+
+if __name__ == "__main__":
+	main()
