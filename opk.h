@@ -13,7 +13,17 @@ struct OPK;
 struct OPK *opk_open(const char *opk_filename);
 void opk_close(struct OPK *opk);
 
-const char *opk_open_metadata(struct OPK *opk);
+/* Open the next meta-data file.
+ * if 'filename' is set, the pointer passed as argument will
+ * be set to point to a string corresponding to the filename.
+ * XXX: the pointer will be invalid as soon as opk_close() is called.
+ *
+ * Returns:
+ *  -1 if an error occured,
+ *  0 if no more meta-data file can be found,
+ *  1 otherwise.
+ */
+int opk_open_metadata(struct OPK *opk, const char **filename);
 
 /* Read a key/value pair.
  * 'key_chars' and 'val_chars' must be valid pointers. The pointers passed

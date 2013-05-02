@@ -1119,12 +1119,11 @@ int opk_sqfs_extract_file(struct PkgData *pdata, const char *name,
 	return 0;
 }
 
-const char *opk_sqfs_get_metadata(struct PkgData *pdata)
+int opk_sqfs_get_metadata(struct PkgData *pdata, const char **filename)
 {
 	if (!pdata->dir.is_open) {
-		if (!squashfs_opendir(pdata, pdata->sBlk.root_inode, &pdata->dir)) {
-			return NULL;
-		}
+		if (!squashfs_opendir(pdata, pdata->sBlk.root_inode, &pdata->dir))
+			return -1;
 	}
 
 	struct dir_ent *ent;
@@ -1132,11 +1131,12 @@ const char *opk_sqfs_get_metadata(struct PkgData *pdata)
 		if (ent->type == SQUASHFS_REG_TYPE || ent->type == SQUASHFS_LREG_TYPE) {
 			char *ptr = strrchr(ent->name, '.');
 			if (ptr && !strcmp(ptr + 1, "desktop")) {
-				return ent->name;
+				*filename = ent->name;
+				return 1;
 			}
 		}
 	}
 
 	squashfs_closedir(&pdata->dir);
-	return NULL;
+	return 0;
 }

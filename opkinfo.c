@@ -17,10 +17,9 @@ static bool display_info(char *package_path) {
 	bool ok = true;
 
 	while (true) {
-		const char *metadata_name = opk_open_metadata(opk);
-		if (!metadata_name) {
+		const char *metadata_name;
+		if (opk_open_metadata(opk, &metadata_name) <= 0)
 			break;
-		}
 
 		const char *key, *val;
 		size_t skey, sval;

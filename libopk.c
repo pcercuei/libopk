@@ -45,7 +45,7 @@ int opk_read_pair(struct OPK *opk,
 				key_chars, key_size, val_chars, val_size);
 }
 
-const char *opk_open_metadata(struct OPK *opk)
+int opk_open_metadata(struct OPK *opk, const char **filename)
 {
 	/* Free previous meta-data information */
 	if (opk->buf) {
@@ -55,15 +55,17 @@ const char *opk_open_metadata(struct OPK *opk)
 	opk->buf = NULL;
 
 	/* Get the name of the next .desktop */
-	const char *name = opk_sqfs_get_metadata(opk->pdata);
-	if (!name)
-		return NULL;
+	const char *name;
+	int err = opk_sqfs_get_metadata(opk->pdata, &name);
+	if (err <= 0)
+		return err;
 
 	/* Extract the meta-data from the OD package */
 	void *buf;
 	size_t buf_size;
-	if (opk_sqfs_extract_file(opk->pdata, name, &buf, &buf_size))
-		return NULL;
+	err = opk_sqfs_extract_file(opk->pdata, name, &buf, &buf_size);
+	if (err)
+		return err;
 
 	struct INI *ini = ini_open_mem(buf, buf_size);
 	if (!ini)
@@ -84,13 +86,15 @@ const char *opk_open_metadata(struct OPK *opk)
 
 	opk->buf = buf;
 	opk->ini = ini;
-	return name;
+	if (filename)
+		*filename = name;
+	return 1;
 
 error_ini_close:
 	ini_close(ini);
 err_free_buf:
 	free(buf);
-	return NULL;
+	return -1;
 }
 
 void opk_close(struct OPK *opk)
