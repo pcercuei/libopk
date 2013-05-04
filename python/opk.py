@@ -1,5 +1,7 @@
 from sys import argv
-from ctypes import POINTER, Structure, cdll, c_char_p, c_int, c_uint, byref
+from cStringIO import StringIO
+from ctypes import POINTER, Structure, cdll, c_char_p, c_void_p, \
+		c_int, c_uint, byref, string_at
 
 def _checkOpen(result, func, arguments):
 	if result:
@@ -12,6 +14,12 @@ def _checkRead(result, func, arguments):
 		return result
 	else:
 		raise SyntaxError("Error occured while reading meta-data")
+
+def _checkExtract(result, func, arguments):
+	if result == 0:
+		return result
+	else:
+		raise IOError("Unable to extract file from OPK")
 
 def _init():
 	class _OPK(Structure):
@@ -46,6 +54,13 @@ def _init():
 	global _opk_read_pair
 	_opk_read_pair = opk_read_pair
 
+	opk_extract_file = lib.opk_extract_file
+	opk_extract_file.restype = c_int
+	opk_extract_file.archtypes = (OpkPtr, c_char_p, c_void_p, c_uint)
+	opk_extract_file.errcheck = _checkExtract
+	global _opk_extract_file
+	_opk_extract_file = opk_extract_file
+
 _init()
 
 class OPK(object):
@@ -74,6 +89,14 @@ class OPK(object):
 			return (key.value[:key_len.value], val.value[:val_len.value])
 		return (None, None)
 
+	def extract_file(self, filename):
+		ptr = c_char_p()
+		size = c_uint()
+		_opk_extract_file(self._opk, filename, byref(ptr), byref(size))
+		output = StringIO()
+		output.write(string_at(ptr, size.value))
+		return output
+
 
 def read_metadata(filename):
 	opk = OPK(filename)
@@ -98,6 +121,9 @@ def read_metadata(filename):
 		opk_dict[mdata] = {'Desktop Entry': mdata_dict }
 	
 	return opk_dict
+
+def extract_file(opk_filename, filename):
+	return OPK(opk_filename).extract_file(filename)
 
 
 def main():
