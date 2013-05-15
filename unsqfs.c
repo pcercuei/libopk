@@ -345,8 +345,9 @@ static bool read_fs_bytes(const int fd, const long long offset,
 			offset, bytes);
 
 	if (lseek(fd, (off_t)offset, SEEK_SET) == -1) {
+		int err = -errno;
 		ERROR("Error seeking in input: %s\n", strerror(errno));
-		return false;
+		return err;
 	}
 
 	size_t count = 0;
@@ -355,17 +356,18 @@ static bool read_fs_bytes(const int fd, const long long offset,
 		if (res < 1) {
 			if (res == 0) {
 				ERROR("Error reading input: unexpected EOF\n");
-				return false;
+				return -EIO;
 			} else if (errno != EINTR) {
+				int err = -errno;
 				ERROR("Error reading input: %s\n", strerror(errno));
-				return false;
+				return err;
 			}
 		} else {
 			count += res;
 		}
 	}
 
-	return true;
+	return 0;
 }
 
 static int read_compressed(const struct PkgData *pdata,
@@ -376,13 +378,14 @@ static int read_compressed(const struct PkgData *pdata,
 		// In the case compression doesn't make a block smaller,
 		// mksquashfs will store the block uncompressed.
 		ERROR("Refusing to load too-large compressed block\n");
-		return -1;
+		return -EIO;
 	}
 
 	// Load compressed data into temporary buffer.
 	char tmp[csize];
-	if (!read_fs_bytes(pdata->fd, offset, tmp, csize)) {
-		return -1;
+	int err = read_fs_bytes(pdata->fd, offset, tmp, csize);
+	if (err < 0) {
+		return err;
 	}
 
 #if USE_GZIP
@@ -394,7 +397,7 @@ static int read_compressed(const struct PkgData *pdata,
 		}
 
 		ERROR("GZIP uncompress failed with error code %d\n", error);
-		return -1;
+		return -EIO;
 	}
 #endif
 #if USE_LZO
@@ -406,13 +409,13 @@ static int read_compressed(const struct PkgData *pdata,
 		}
 
 		ERROR("LZO uncompress failed with error code %d\n", error);
-		return -1;
+		return -EIO;
 	}
 #endif
 
 	ERROR("Unsupported compression algorithm (id: %hu)\n",
 				pdata->sBlk.compression);
-	return -1;
+	return -EINVAL;
 }
 
 static int read_uncompressed(const struct PkgData *pdata,
@@ -421,10 +424,15 @@ static int read_uncompressed(const struct PkgData *pdata,
 {
 	if (csize > buf_size) {
 		ERROR("Refusing to load oversized uncompressed block\n");
-		return -1;
+		return -EIO;
 	}
 
-	return read_fs_bytes(pdata->fd, offset, buf, csize) ? (int)csize : -1;
+	int err = read_fs_bytes(pdata->fd, offset, buf, csize);
+	if (err < 0) {
+		return err;
+	}
+
+	return (int) csize;
 }
 
 
@@ -437,29 +445,31 @@ static int read_metadata_block(const struct PkgData *pdata,
 	long long offset = start;
 
 	unsigned short c_byte;
-	if (!read_fs_bytes(pdata->fd, offset, &c_byte, 2)) {
+	int ret = read_fs_bytes(pdata->fd, offset, &c_byte, 2);
+	if (ret) {
 		goto failed;
 	}
+
 	offset += 2;
 	int csize = SQUASHFS_COMPRESSED_SIZE(c_byte);
 
 	TRACE("read_metadata_block: block @0x%llx, %d %s bytes\n", start, csize,
 			SQUASHFS_COMPRESSED(c_byte) ? "compressed" : "uncompressed");
 
-	const int usize = SQUASHFS_COMPRESSED(c_byte)
+	ret = SQUASHFS_COMPRESSED(c_byte)
 		? read_compressed(pdata, offset, csize, buf, buf_size)
 		: read_uncompressed(pdata, offset, csize, buf, buf_size);
-	if (usize < 0) {
+	if (ret < 0) {
 		goto failed;
 	}
 
 	offset += csize;
 	if (next) *next = offset;
-	return usize;
+	return ret;
 
 failed:
 	ERROR("Failed to read metadata block @0x%llx\n", start);
-	return 0;
+	return ret;
 }
 
 static int read_data_block(const struct PkgData *pdata,
@@ -500,7 +510,7 @@ static struct hash_table_entry *load_entry(struct PkgData *pdata,
 	long long cnext;
 	int usize = read_metadata_block(pdata, cstart, &cnext,
 			udata, SQUASHFS_METADATA_SIZE);
-	if (usize == 0) {
+	if (usize < 0) {
 		ERROR("Failed to read metadata block\n");
 		free(udata);
 		return NULL;
@@ -834,8 +844,8 @@ static long long *read_fragment_table_index(struct PkgData *pdata)
 
 	const size_t index_size = num_table_blocks * sizeof(long long);
 	long long *index = malloc(index_size);
-	if (!read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
-			index, index_size)) {
+	if (read_fs_bytes(pdata->fd, pdata->sBlk.fragment_table_start,
+			index, index_size) < 0) {
 		ERROR("Failed to read fragment table index\n");
 		free(index);
 		return NULL;
@@ -903,7 +913,7 @@ static const struct squashfs_fragment_entry *fetch_fragment_entry(
 			table_block, block_size);
 	TRACE("Read fragment table block %u, from 0x%llx, length %d\n",
 			block_nr, index[block_nr], length);
-	if (length == 0) {
+	if (length < 0) {
 		ERROR("Failed to read fragment table block %u\n", block_nr);
 		free(table_block);
 		return NULL;
@@ -1001,8 +1011,8 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 	}
 
 	TRACE("Loading superblock...\n");
-	if (!read_fs_bytes(pdata->fd, SQUASHFS_START,
-			&pdata->sBlk, sizeof(pdata->sBlk))) {
+	if (read_fs_bytes(pdata->fd, SQUASHFS_START,
+			&pdata->sBlk, sizeof(pdata->sBlk)) < 0) {
 		ERROR("Failed to read SQUASHFS superblock on \"%s\"\n", image_name);
 		goto fail_close;
 	}
@@ -1123,7 +1133,7 @@ int opk_sqfs_get_metadata(struct PkgData *pdata, const char **filename)
 {
 	if (!pdata->dir.is_open) {
 		if (!squashfs_opendir(pdata, pdata->sBlk.root_inode, &pdata->dir))
-			return -1;
+			return -EIO;
 	}
 
 	struct dir_ent *ent;
