@@ -32,16 +32,19 @@ def main():
 	elf = mdata['Exec']
 
 	if "%f" in elf:
-		if len(argv) < 4:
-			print "WARNING: Application expects one argument"
-		elif len(argv) > 4:
-			print "WARNING: Application expects one argument, but more were passed"
-		else:
+		if len(argv) == 4:
 			elf.replace("%f", argv[3])
+		else:
+			if len(argv) < 4:
+				print "WARNING: Application expects one argument"
+			elif len(argv) > 4:
+				print "WARNING: Application expects one argument, but more were passed"
+			elf.replace("%f", "")
 
 	elif "%F" in elf:
 		if len(argv) < 4:
 			print "WARNING: Application expects arguments"
+			elf.replace("%F", "")
 		else:
 			args = argv[3]
 			for arg in argv[4:]:
