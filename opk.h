@@ -46,7 +46,9 @@ int opk_read_pair(struct OPK *opk,
  * of the buffer, in bytes.
  *
  * Returns:
- * -1 if an error occured,
+ *  -ENOENT if the file to extract is not found,
+ *  -ENOMEM if the buffer cannot be allocated,
+ *  -EIO if the file cannot be read,
  *  0 otherwise.
  */
 int opk_extract_file(struct OPK *opk,

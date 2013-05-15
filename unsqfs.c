@@ -1099,18 +1099,18 @@ int opk_sqfs_extract_file(struct PkgData *pdata, const char *name,
 	struct inode i;
 	if (!get_inode_from_dir(pdata, name, pdata->sBlk.root_inode, &i)) {
 		ERROR("Unable to find inode for path \"%s\"\n", name);
-		return -1;
+		return -ENOENT;
 	}
 
 	void *buf = malloc(i.file_size);
 	if (!buf) {
 		ERROR("Unable to allocate file extraction buffer\n");
-		return -1;
+		return -ENOMEM;
 	}
 
 	if (!write_buf(pdata, &i, buf)) {
 		free(buf);
-		return -1;
+		return -EIO;
 	}
 
 	*out_data = buf;
