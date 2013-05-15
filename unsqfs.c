@@ -368,28 +368,6 @@ static bool read_fs_bytes(const int fd, const long long offset,
 	return true;
 }
 
-static int squashfs_uncompress(const struct PkgData *pdata,
-		void *dbuf, const size_t dsize, const void *sbuf, const size_t ssize,
-		int *error)
-{
-#if USE_GZIP
-	if (pdata->sBlk.compression == ZLIB_COMPRESSION) {
-		unsigned long bytes_zlib = dsize;
-		*error = uncompress(dbuf, &bytes_zlib, sbuf, ssize);
-		return *error == Z_OK ? (int) bytes_zlib : -1;
-	}
-#endif
-#if USE_LZO
-	if (pdata->sBlk.compression == LZO_COMPRESSION) {
-		lzo_uint bytes_lzo = dsize;
-		*error = lzo1x_decompress_safe(sbuf, ssize, dbuf, &bytes_lzo, NULL);
-		return *error == LZO_E_OK ? (int)bytes_lzo : -1;
-	}
-#endif
-	*error = -EINVAL;
-	return -1;
-}
-
 static int read_compressed(const struct PkgData *pdata,
 		const long long offset, const size_t csize,
 		void *buf, const size_t buf_size)
@@ -407,12 +385,34 @@ static int read_compressed(const struct PkgData *pdata,
 		return -1;
 	}
 
-	int error, res = squashfs_uncompress(
-			pdata, buf, buf_size, tmp, csize, &error);
-	if (res == -1) {
-		ERROR("Uncompress failed with error code %d\n", error);
+#if USE_GZIP
+	if (pdata->sBlk.compression == ZLIB_COMPRESSION) {
+		unsigned long bytes_zlib = buf_size;
+		int error = uncompress(buf, &bytes_zlib, (const Bytef *) tmp, csize);
+		if (error == Z_OK) {
+			return (int) bytes_zlib;
+		}
+
+		ERROR("GZIP uncompress failed with error code %d\n", error);
+		return -1;
 	}
-	return res;
+#endif
+#if USE_LZO
+	if (pdata->sBlk.compression == LZO_COMPRESSION) {
+		lzo_uint bytes_lzo = buf_size;
+		int error = lzo1x_decompress_safe(tmp, csize, buf, &bytes_lzo, NULL);
+		if (error == LZO_E_OK) {
+			return (int) bytes_lzo;
+		}
+
+		ERROR("LZO uncompress failed with error code %d\n", error);
+		return -1;
+	}
+#endif
+
+	ERROR("Unsupported compression algorithm (id: %hu)\n",
+				pdata->sBlk.compression);
+	return -1;
 }
 
 static int read_uncompressed(const struct PkgData *pdata,
