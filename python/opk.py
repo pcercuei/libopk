@@ -26,7 +26,7 @@ def _init():
 		pass
 	OpkPtr = POINTER(_OPK)
 
-	lib = cdll.LoadLibrary('libopk.so.0')
+	lib = cdll.LoadLibrary('libopk.so.1')
 
 	opk_open = lib.opk_open
 	opk_open.restype = OpkPtr
