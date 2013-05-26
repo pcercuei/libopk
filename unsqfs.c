@@ -338,7 +338,7 @@ struct PkgData {
 
 // === Low-level I/O ===
 
-static bool read_fs_bytes(const int fd, const long long offset,
+static int read_fs_bytes(const int fd, const long long offset,
 		void *buf, const size_t bytes)
 {
 	TRACE("read_bytes: reading from position 0x%llx, bytes %lu\n",
@@ -930,7 +930,7 @@ static const struct squashfs_fragment_entry *fetch_fragment_entry(
 	return &blocks[block_nr][block_idx];
 }
 
-static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
+static int write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 {
 	TRACE("write_buf: regular file, %d blocks\n", inode->num_blocks);
 
@@ -944,18 +944,18 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 
 		unsigned int c_byte;
 		if (!read_metadata(&inode->accessor, &c_byte, sizeof(c_byte))) {
-			return false;
+			return -EIO;
 		}
 		if (c_byte == 0) { // sparse file
 			memset(buf, 0, size);
 		} else {
 			const int usize = read_data_block(pdata, buf, size, start, c_byte);
 			if (usize < 0) {
-				return false;
+				return usize;
 			} else if (usize != size) {
 				ERROR("Error: data block contains %d bytes, expected %d\n",
 						usize, size);
-				return false;
+				return -EIO;
 			}
 			start += SQUASHFS_COMPRESSED_SIZE_BLOCK(c_byte);
 		}
@@ -969,27 +969,27 @@ static bool write_buf(struct PkgData *pdata, struct inode *inode, void *buf)
 				fetch_fragment_entry(pdata, inode->fragment);
 		if (!fragment_entry) {
 			ERROR("Failed to get info about fragment %d\n", inode->fragment);
-			return false;
+			return -EIO;
 		}
 
 		void *data = malloc(pdata->sBlk.block_size);
 		if (!data) {
 			ERROR("Failed to allocate block data buffer\n");
-			return false;
+			return -ENOMEM;
 		}
 
 		const int usize = read_data_block(pdata, data, pdata->sBlk.block_size,
 				fragment_entry->start_block, fragment_entry->size);
 		if (usize < 0) {
 			free(data);
-			return false;
+			return usize;
 		}
 
 		memcpy(buf, data + inode->offset, inode->frag_bytes);
 		free(data);
 	}
 
-	return true;
+	return 0;
 }
 
 
@@ -1056,15 +1056,15 @@ void opk_sqfs_close(struct PkgData *pdata)
 	free(pdata);
 }
 
-static bool get_inode_from_dir(struct PkgData *pdata,
+static int get_inode_from_dir(struct PkgData *pdata,
 		const char *name, squashfs_inode inode_addr, struct inode *i)
 {
 	struct dir dir;
 	if (!squashfs_opendir(pdata, inode_addr, &dir)) {
-		return false;
+		return -EIO;
 	}
 
-	bool found = false;
+	int found = 0;
 	const char *dirsep = strchr(name, '/');
 	if (dirsep) {
 		// Look for subdir.
@@ -1101,13 +1101,14 @@ exit_close:
 	return found;
 }
 
-// TODO: There is currently no way to tell apart "no such file" from other
-//       errors such as allocation failures.
 int opk_sqfs_extract_file(struct PkgData *pdata, const char *name,
 		void **out_data, size_t *out_size)
 {
 	struct inode i;
-	if (!get_inode_from_dir(pdata, name, pdata->sBlk.root_inode, &i)) {
+	int ret = get_inode_from_dir(pdata, name, pdata->sBlk.root_inode, &i);
+	if (ret < 0) {
+		return ret;
+	} else if (!ret) {
 		ERROR("Unable to find inode for path \"%s\"\n", name);
 		return -ENOENT;
 	}
@@ -1118,9 +1119,10 @@ int opk_sqfs_extract_file(struct PkgData *pdata, const char *name,
 		return -ENOMEM;
 	}
 
-	if (!write_buf(pdata, &i, buf)) {
+	ret = write_buf(pdata, &i, buf);
+	if (ret < 0) {
 		free(buf);
-		return -EIO;
+		return ret;
 	}
 
 	*out_data = buf;
