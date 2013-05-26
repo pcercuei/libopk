@@ -1,4 +1,4 @@
-
+#include <errno.h>
 #include <ini.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -68,19 +68,24 @@ int opk_open_metadata(struct OPK *opk, const char **filename)
 		return err;
 
 	struct INI *ini = ini_open_mem(buf, buf_size);
-	if (!ini)
+	if (!ini) {
+		err = -ENOMEM;
 		goto err_free_buf;
+	}
 
 	const char *section;
 	size_t section_len;
 	int has_section = ini_next_section(ini, &section, &section_len);
-	if (has_section < 0)
+	if (has_section < 0) {
+		err = has_section;
 		goto error_ini_close;
+	}
 
 	/* The [Desktop Entry] section must be the first section of the
 	 * .desktop file. */
 	if (!has_section || strncmp(HEADER, section, section_len)) {
 		fprintf(stderr, "%s: not a proper desktop entry file\n", name);
+		err = -EIO;
 		goto error_ini_close;
 	}
 
@@ -94,7 +99,7 @@ error_ini_close:
 	ini_close(ini);
 err_free_buf:
 	free(buf);
-	return -1;
+	return err;
 }
 
 void opk_close(struct OPK *opk)

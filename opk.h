@@ -19,7 +19,8 @@ void opk_close(struct OPK *opk);
  * XXX: the pointer will be invalid as soon as opk_close() is called.
  *
  * Returns:
- *  -1 if an error occured,
+ *  -EIO if the file cannot be read,
+ *  -ENOMEM if the buffer cannot be allocated,
  *  0 if no more meta-data file can be found,
  *  1 otherwise.
  */
@@ -32,7 +33,7 @@ int opk_open_metadata(struct OPK *opk, const char **filename);
  * XXX: the pointers will be invalid as soon as opk_close() is called.
  *
  * Returns:
- *  -1 if an error occured,
+ *  -EIO if the file cannot be read,
  *  0 if no more key/value pairs can be found,
  *  1 otherwise.
  */
