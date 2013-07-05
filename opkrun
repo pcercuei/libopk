@@ -4,7 +4,7 @@
 #
 # Copyright 2013 Paul Cercueil <paul@crapouillou.net>
 
-from os  import chdir, mkdir, execl, system, putenv, getenv
+from os  import chdir, mkdir, execl, system, getenv
 from sys import argv
 from opk import read_metadata
 
@@ -16,9 +16,14 @@ def enable_vtcon():
 		fd.write("1")
 
 
+def path_transform(path):
+	if path[0] == '/':
+		return path
+	return "%s/%s" % (getenv("PWD"), path)
+
 def main():
 	if len(argv) < 3:
-		print "Usage: opkrun.py metadata_filename app.opk app_args..."
+		print "Usage: opkrun metadata_filename app.opk app_args..."
 		return 0
 
 	opk_mdata = read_metadata(argv[2])
@@ -29,27 +34,27 @@ def main():
 	if mdata['Type'] != "Application":
 		raise IOError("Given metadata is not for an application")
 
-	elf = mdata['Exec']
+	elf = "./%s" % mdata['Exec']
 
 	if "%f" in elf:
 		if len(argv) == 4:
-			elf.replace("%f", argv[3])
+			elf = elf.replace("%f", "\'%s\'" % path_transform(argv[3]))
 		else:
 			if len(argv) < 4:
 				print "WARNING: Application expects one argument"
 			elif len(argv) > 4:
 				print "WARNING: Application expects one argument, but more were passed"
-			elf.replace("%f", "")
+			elf = elf.replace("%f", "")
 
 	elif "%F" in elf:
 		if len(argv) < 4:
 			print "WARNING: Application expects arguments"
-			elf.replace("%F", "")
+			elf = elf.replace("%F", "")
 		else:
 			args = argv[3]
 			for arg in argv[4:]:
-				args += " " + arg
-			elf.replace("%F", args)
+				args += " \'%s\'" % path_transform(arg)
+			elf = elf.replace("%F", args)
 
 	elif len(argv) > 3:
 		print "WARNING: Arguments ignored, application doesn't need any"
@@ -73,7 +78,6 @@ def main():
 	elf += " ; umount -l " + mountpoint + " ; rmdir " + mountpoint
 
 	chdir(mountpoint)
-	putenv("PATH", getenv("PATH") + ":" + mountpoint)
 	execl("/bin/sh", "/bin/sh", "-c", elf)
 
 
