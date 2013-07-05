@@ -50,5 +50,11 @@ install: install-lib
 	$(INSTALL) -D -m 0644 opk.h $(DESTDIR)$(PREFIX)/include/opk.h
 	ln -sf $(SONAME) $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
 
+uninstall-lib:
+	rm -f $(DESTDIR)$(PREFIX)/lib/$(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(SONAME)
+
+uninstall: uninstall-lib
+	rm -f $(DESTDIR)$(PREFIX)/include/opk.h $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
+
 clean:
 	rm -f $(OBJS) $(LIBOPK) opkinfo
