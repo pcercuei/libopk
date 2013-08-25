@@ -29,7 +29,9 @@ endif
 
 OBJS = libopk.o unsqfs.o
 
-.PHONY: all analyze clean install install-lib
+.PHONY: all analyze clean \
+	install install-bin install-lib \
+	uninstall uninstall-bin uninstall-lib
 
 all: $(LIBOPK) opkinfo
 
@@ -42,18 +44,24 @@ $(LIBOPK): $(OBJS)
 analyze:
 	$(ANALYZER) $(CFLAGS) $(OBJS:%.o=%.c)
 
+install-bin: opkinfo
+	$(INSTALL) -D $< $(DESTDIR)$(PREFIX)/bin/$<
+
 install-lib: $(LIBOPK)
 	$(INSTALL) -D $(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(LIBOPK)
 	ln -sf $(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(SONAME)
 
-install: install-lib
+install: install-bin install-lib
 	$(INSTALL) -D -m 0644 opk.h $(DESTDIR)$(PREFIX)/include/opk.h
 	ln -sf $(SONAME) $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
+
+uninstall-bin:
+	rm -f $(DESTDIR)$(PREFIX)/bin/opkinfo
 
 uninstall-lib:
 	rm -f $(DESTDIR)$(PREFIX)/lib/$(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(SONAME)
 
-uninstall: uninstall-lib
+uninstall: uninstall-bin uninstall-lib
 	rm -f $(DESTDIR)$(PREFIX)/include/opk.h $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
 
 clean:
