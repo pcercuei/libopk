@@ -3,6 +3,7 @@
 from distutils.core import setup
 
 setup(name='libopk',
+      version='@VERSION@',
       description='Library to extract meta-data from OPK packages',
       url='http://github.com/gcwnow/libopk',
       py_modules=['opk'],
