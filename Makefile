@@ -33,9 +33,12 @@ OBJS = libopk.o unsqfs.o
 	install install-bin install-lib \
 	uninstall uninstall-bin uninstall-lib
 
-all: $(LIBOPK) opkinfo
+all: $(LIBOPK) opkinfo opkrun
 
 opkinfo: opkinfo.c $(LIBOPK)
+	$(CC) -o $@ $^ $(CFLAGS)
+
+opkrun: opkrun.c $(LIBOPK)
 	$(CC) -o $@ $^ $(CFLAGS)
 
 $(LIBOPK): $(OBJS)
@@ -44,7 +47,7 @@ $(LIBOPK): $(OBJS)
 analyze:
 	$(ANALYZER) $(CFLAGS) $(OBJS:%.o=%.c)
 
-install-bin: opkinfo
+install-bin: opkinfo opkrun
 	$(INSTALL) -D $< $(DESTDIR)$(PREFIX)/bin/$<
 
 install-lib: $(LIBOPK)
@@ -56,7 +59,7 @@ install: install-bin install-lib
 	ln -sf $(SONAME) $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
 
 uninstall-bin:
-	rm -f $(DESTDIR)$(PREFIX)/bin/opkinfo
+	rm -f $(DESTDIR)$(PREFIX)/bin/opkinfo $(DESTDIR)$(PREFIX)/bin/opkrun
 
 uninstall-lib:
 	rm -f $(DESTDIR)$(PREFIX)/lib/$(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(SONAME)
