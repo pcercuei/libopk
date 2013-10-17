@@ -68,4 +68,4 @@ uninstall: uninstall-bin uninstall-lib
 	rm -f $(DESTDIR)$(PREFIX)/include/opk.h $(DESTDIR)$(PREFIX)/lib/$(LIBNAME)
 
 clean:
-	rm -f $(OBJS) $(LIBOPK) opkinfo
+	rm -f $(OBJS) $(LIBOPK) opkinfo opkrun
