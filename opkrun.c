@@ -18,13 +18,11 @@
 #define VTCON_FILE "/sys/devices/virtual/vtconsole/vtcon1/bind"
 #endif
 
+#define NB_PARAMS_MAX 256
+
 struct params {
-	char *exec, *mountpoint;
-	char terminal:1,
-		 needs_file:1,
-		 can_files:1,
-		 needs_url:1,
-		 can_urls:1;
+	char *mountpoint, *exec[NB_PARAMS_MAX];
+	int needs_terminal;
 };
 
 
@@ -114,7 +112,7 @@ static int read_params(struct OPK *opk, struct params *params)
 
 		if (!strncmp(key, "Terminal", skey)
 					&& !strncmp(val, "true", sval)) {
-			params->terminal = 1;
+			params->needs_terminal = 1;
 			continue;
 		}
 	}
@@ -124,34 +122,21 @@ static int read_params(struct OPK *opk, struct params *params)
 		return -1;
 	}
 
-	unsigned int i;
-	for (i = 0; i < exec_name_len - 1; i++) {
-		if (exec_name[i] != '%')
-			continue;
-		i++;
-		if (exec_name[i] == 'f') {
-			params->needs_file = 1;
-			params->can_files = 1;
-		} else if (exec_name[i] == 'F') {
-			params->can_files = 1;
-		} else if (exec_name[i] == 'u') {
-			params->needs_url = 1;
-			params->can_urls = 1;
-		} else if (exec_name[i] == 'U') {
-			params->can_urls = 1;
-		} else
-			fprintf(stderr,
-						"Unhandled token %%%c in Exec line\n", exec_name[i]);
-		break;
+	char *exec = malloc(exec_name_len + 1);
+	memcpy(exec, exec_name, exec_name_len);
+	exec[exec_name_len] = '\0';
+
+	/* Split the Exec command into an array of parameters */
+	char *ptr;
+	unsigned int arg;
+	for (ptr = exec, arg = 0; ptr && arg < NB_PARAMS_MAX - 1; arg++) {
+		params->exec[arg] = ptr;
+		ptr = strchr(ptr, ' ');
+		if (ptr)
+			*ptr++ = '\0';
 	}
 
-	for (i = 0; i < exec_name_len; i++)
-		if (exec_name[i] == ' ')
-			break;
-
-	params->exec = malloc(i + 1);
-	memcpy(params->exec, exec_name, i);
-	params->exec[i] = '\0';
+	params->exec[arg] = NULL;
 
 	params->mountpoint = malloc(name_len + 6);
 	sprintf(params->mountpoint, "/mnt/%.*s", (int) name_len, name);
@@ -171,6 +156,18 @@ static void enable_vtcon(void)
 	fclose(f);
 }
 
+static char *get_url(const char *file)
+{
+	char *url = realpath(file, NULL);
+	if (!url)
+		return strdup(file);
+
+	char *tmp = malloc(strlen(url) + sizeof "file://");
+	sprintf(tmp, "file://%s", url);
+	free(url);
+	return tmp;
+}
+
 int main(int argc, char **argv)
 {
 	if (argc < 2) {
@@ -182,7 +179,7 @@ int main(int argc, char **argv)
 	int c, option_index = 0, arg_index = 1;
 	const char *metadata = NULL;
 
-	while ((c = getopt_long(argc, argv, "hm:",
+	while ((c = getopt_long(argc, argv, "+hm:",
 						options, &option_index)) != -1) {
 		switch (c) {
 			case 'h':
@@ -210,37 +207,53 @@ int main(int argc, char **argv)
 	if (ret < 0)
 		return EXIT_FAILURE;
 
-	char *args[16] = {
-		params.exec, NULL,
-	};
-
 	char **opk_argv = argv + arg_index + 1;
 	int opk_argc = argc - arg_index - 1;
-	if (opk_argc > 14)
-		opk_argc = 14;
+	if (opk_argc > NB_PARAMS_MAX - 2)
+		opk_argc = NB_PARAMS_MAX - 2;
 
-	if (!opk_argc && (params.needs_file || params.needs_url))
-		fprintf(stderr, "WARNING: OPK requires a parameter, but none was given\n");
+	char *args[NB_PARAMS_MAX];
+	memset(args, 0, sizeof(args));
 
-	if (params.can_files) {
-		int i;
-		for (i = 0; i < opk_argc; i++)
-			args[i + 1] = realpath(opk_argv[i], NULL);
-		args[i] = NULL;
-	} else if (params.can_urls) {
-		int i;
-		for (i = 0; i < opk_argc; i++) {
-			char *url = realpath(opk_argv[i], NULL);
-			if (url) {
-				char *tmp = malloc(strlen(url) + sizeof "file://");
-				sprintf(tmp, "file://%s", url);
-				free(url);
-				url = tmp;
+	/* This loop is used to replace the [%f %F %u %U] tokens
+	 * with the filenames passed as parameter of opkrun */
+	char **ptr;
+	unsigned int arg;
+	for (arg = 0, ptr = params.exec; *ptr && arg < NB_PARAMS_MAX; ptr++, arg++) {
+		if (!strcmp("%f", *ptr)) {
+			if (!opk_argc) {
+				fprintf(stderr, "WARNING: OPK requires a file as parameter, but none was given\n");
+			} else {
+				args[arg] = realpath(*opk_argv++, NULL);
+				if (--opk_argc)
+					fprintf(stderr, "WARNING: OPK requires only one file as parameter\n");
 			}
-			args[i + 1] = url;
+		} else if (!strcmp("%F", *ptr)) {
+			while (opk_argc && arg < NB_PARAMS_MAX) {
+				args[arg++] = realpath(*opk_argv++, NULL);
+				opk_argc--;
+			}
+			arg--; /* Compensate the arg++ in the 'for' */
+		} else if (!strcmp("%u", *ptr)) {
+			if (!opk_argc) {
+				fprintf(stderr, "WARNING: OPK requires an URL as parameter, but none was given\n");
+			} else {
+				args[arg] = get_url(*opk_argv++);
+				if (--opk_argc)
+					fprintf(stderr, "WARNING: OPK requires only one URL as parameter\n");
+			}
+		} else if (!strcmp("%U", *ptr)) {
+			while (opk_argc && arg < NB_PARAMS_MAX) {
+				args[arg++] = get_url(*opk_argv++);
+				opk_argc--;
+			}
+			arg--; /* Compensate the arg++ in the 'for' */
+		} else {
+			args[arg] = strdup(*ptr);
 		}
-		args[i] = NULL;
 	}
+
+	free(params.exec[0]);
 
 	umount(params.mountpoint);
 	mkdir(params.mountpoint, 0755);
@@ -251,22 +264,21 @@ int main(int argc, char **argv)
 	ret = system(buf);
 	if (ret < 0) {
 		perror("Unable to mount OPK");
-		free(params.exec);
 		free(params.mountpoint);
 		return EXIT_FAILURE;
 	}
 
 	chdir(params.mountpoint);
 
-	if (params.terminal)
+	if (params.needs_terminal)
 		enable_vtcon();
 
 	pid_t son = fork();
 	if (!son) {
-		sprintf(buf, "%s/%s", params.mountpoint, params.exec);
-		if (!access(buf, X_OK))
-			execv(buf, args);
-		execvp(params.exec, args);
+		sprintf(buf, "%s/%s", params.mountpoint, args[0]);
+		if (!access(buf, X_OK)) /* Not in the root of the OPK */
+			execv(buf, args);   /* Maybe in the $PATH? */
+		execvp(args[0], args);
 	}
 
 	int status;
@@ -276,7 +288,6 @@ int main(int argc, char **argv)
 	umount(params.mountpoint);
 	rmdir(params.mountpoint);
 	free(params.mountpoint);
-	free(params.exec);
 
 	for (char **ptr = args; *ptr; ptr++)
 		free(*ptr);
