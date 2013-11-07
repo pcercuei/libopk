@@ -47,8 +47,13 @@ $(LIBOPK): $(OBJS)
 analyze:
 	$(ANALYZER) $(CFLAGS) $(OBJS:%.o=%.c)
 
-install-bin: opkinfo opkrun
+install-opkinfo: opkinfo
 	$(INSTALL) -D $< $(DESTDIR)$(PREFIX)/bin/$<
+
+install-opkrun: opkrun
+	$(INSTALL) -D $< $(DESTDIR)$(PREFIX)/bin/$<
+
+install-bin: install-opkinfo install-opkrun
 
 install-lib: $(LIBOPK)
 	$(INSTALL) -D $(LIBOPK) $(DESTDIR)$(PREFIX)/lib/$(LIBOPK)
