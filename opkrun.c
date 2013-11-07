@@ -21,7 +21,6 @@
 struct params {
 	char *exec, *mountpoint;
 	char terminal:1,
-		 daemon:1,
 		 needs_file:1,
 		 can_files:1,
 		 needs_url:1,
@@ -104,6 +103,7 @@ static int read_params(struct OPK *opk, struct params *params)
 		if (!strncmp(key, "Name", skey)) {
 			name_len = sval;
 			name = val;
+			continue;
 		}
 
 		if (!strncmp(key, "Exec", skey)) {
@@ -117,10 +117,6 @@ static int read_params(struct OPK *opk, struct params *params)
 			params->terminal = 1;
 			continue;
 		}
-
-		if (!strncmp(key, "X-OD-Daemon", skey)
-					&& !strncmp(val, "true", sval))
-			params->daemon = 1;
 	}
 
 	if (!exec_name || !name) {
@@ -272,9 +268,6 @@ int main(int argc, char **argv)
 			execv(buf, args);
 		execvp(params.exec, args);
 	}
-
-	if (params.daemon && fork())
-		return EXIT_SUCCESS;
 
 	int status;
 	waitpid(son, &status, 0);
