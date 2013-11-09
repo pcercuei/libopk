@@ -259,7 +259,7 @@ int main(int argc, char **argv)
 	mkdir(params.mountpoint, 0755);
 
 	char buf[256];
-	sprintf(buf, "mount -o loop,nodev,nosuid,ro %s %s >/dev/null 2>&1",
+	sprintf(buf, "mount -o loop,nodev,nosuid,ro \'%s\' \'%s\' >/dev/null 2>&1",
 				opk_name, params.mountpoint);
 	ret = system(buf);
 	if (ret < 0) {
