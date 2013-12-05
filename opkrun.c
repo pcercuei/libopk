@@ -196,6 +196,12 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (arg_index >= argc) {
+		fprintf(stderr, "Incorrect number of arguments.\n\n");
+		usage();
+		return EXIT_FAILURE;
+	}
+
 	const char *opk_name = argv[arg_index];
 	struct OPK *opk = open_opk(opk_name, metadata);
 	if (!opk)
