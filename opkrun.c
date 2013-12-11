@@ -140,6 +140,11 @@ static int read_params(struct OPK *opk, struct params *params)
 
 	params->mountpoint = malloc(name_len + 6);
 	sprintf(params->mountpoint, "/mnt/%.*s", (int) name_len, name);
+
+	for (ptr = params->mountpoint + 5; *ptr; ptr++) {
+		if (*ptr == '\'' || *ptr == '\\')
+			*ptr = '_';
+	}
 	return 0;
 }
 
