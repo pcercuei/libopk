@@ -132,8 +132,12 @@ static int read_params(struct OPK *opk, struct params *params)
 	for (ptr = exec, arg = 0; ptr && arg < NB_PARAMS_MAX - 1; arg++) {
 		params->exec[arg] = ptr;
 		ptr = strchr(ptr, ' ');
-		if (ptr)
+
+		if (ptr) {
 			*ptr++ = '\0';
+			while (*ptr == ' ') /* Skip eventual additional spaces */
+				ptr++;
+		}
 	}
 
 	params->exec[arg] = NULL;
