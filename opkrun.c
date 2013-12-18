@@ -1,7 +1,9 @@
 #define _BSD_SOURCE 1
+
+#include "opk.h"
+
 #include <getopt.h>
 #include <limits.h>
-#include <opk.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
