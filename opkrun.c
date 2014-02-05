@@ -20,11 +20,16 @@
 #define VTCON_FILE "/sys/devices/virtual/vtconsole/vtcon1/bind"
 #endif
 
+#ifndef LINKDEV_ALT_MAP_FILE
+#define LINKDEV_ALT_MAP_FILE "/sys/module/linkdev/parameters/alt_key_map"
+#endif
+
 #define NB_PARAMS_MAX 256
 
 struct params {
 	char *mountpoint, *exec[NB_PARAMS_MAX];
 	int needs_terminal;
+	int needs_joystick;
 };
 
 
@@ -117,6 +122,12 @@ static int read_params(struct OPK *opk, struct params *params)
 			params->needs_terminal = 1;
 			continue;
 		}
+
+		if (!strncmp(key, "X-OD-NeedsJoystick", skey)
+					&& !strncmp(val, "true", sval)) {
+			params->needs_joystick = 1;
+			continue;
+		}
 	}
 
 	if (!exec_name || !name) {
@@ -164,6 +175,17 @@ static void enable_vtcon(void)
 
 	char one = '1';
 	fwrite(&one, 1, 1, f);
+	fclose(f);
+}
+
+static void enable_alt_key_map(void)
+{
+	FILE *f = fopen(LINKDEV_ALT_MAP_FILE, "w");
+	if (!f)
+		return;
+
+	char yes = 'Y';
+	fwrite(&yes, 1, 1, f);
 	fclose(f);
 }
 
@@ -289,6 +311,9 @@ int main(int argc, char **argv)
 
 	if (params.needs_terminal)
 		enable_vtcon();
+
+	if (params.needs_joystick)
+		enable_alt_key_map();
 
 	pid_t son = fork();
 	if (!son) {
