@@ -1,9 +1,11 @@
 #define _BSD_SOURCE 1
+#define _XOPEN_SOURCE 1
 
 #include "opk.h"
 
 #include <getopt.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,8 +30,7 @@
 
 struct params {
 	char *mountpoint, *exec[NB_PARAMS_MAX];
-	int needs_terminal;
-	int needs_joystick;
+	bool needs_terminal, needs_joystick, needs_gsensor;
 };
 
 
@@ -117,15 +118,18 @@ static int read_params(struct OPK *opk, struct params *params)
 			continue;
 		}
 
-		if (!strncmp(key, "Terminal", skey)
-					&& !strncmp(val, "true", sval)) {
-			params->needs_terminal = 1;
+		if (!strncmp(key, "Terminal", skey)) {
+			params->needs_terminal = !strncmp(val, "true", sval);
 			continue;
 		}
 
-		if (!strncmp(key, "X-OD-NeedsJoystick", skey)
-					&& !strncmp(val, "true", sval)) {
-			params->needs_joystick = 1;
+		if (!strncmp(key, "X-OD-NeedsJoystick", skey)) {
+			params->needs_joystick =  !strncmp(val, "true", sval);
+			continue;
+		}
+
+		if (!strncmp(key, "X-OD-NeedsGSensor", skey)) {
+			params->needs_gsensor = !strncmp(val, "true", sval);
 			continue;
 		}
 	}
@@ -187,6 +191,14 @@ static void enable_alt_key_map(void)
 	char yes = 'Y';
 	fwrite(&yes, 1, 1, f);
 	fclose(f);
+}
+
+static void enable_gsensor(void)
+{
+	system("/usr/sbin/gsensor --start");
+
+	/* Fix for SDL apps to recognize the g-sensor */
+	putenv("SDL_JOYSTICK_DEVICE=/dev/input/gsensor");
 }
 
 static char *get_url(const char *file)
@@ -314,6 +326,9 @@ int main(int argc, char **argv)
 
 	if (params.needs_joystick)
 		enable_alt_key_map();
+
+	if (params.needs_gsensor)
+		enable_gsensor();
 
 	pid_t son = fork();
 	if (!son) {
