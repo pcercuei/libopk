@@ -26,11 +26,15 @@
 #define LINKDEV_ALT_MAP_FILE "/sys/module/linkdev/parameters/alt_key_map"
 #endif
 
+#ifndef JZ4770FB_ENABLE_DOWNSCALING_FILE
+#define JZ4770FB_ENABLE_DOWNSCALING_FILE "/sys/module/jz4770_fb/parameters/allow_downscaling"
+#endif
+
 #define NB_PARAMS_MAX 256
 
 struct params {
 	char *mountpoint, *exec[NB_PARAMS_MAX];
-	bool needs_terminal, needs_joystick, needs_gsensor;
+	bool needs_terminal, needs_joystick, needs_gsensor, needs_downscaling;
 };
 
 
@@ -132,6 +136,11 @@ static int read_params(struct OPK *opk, struct params *params)
 			params->needs_gsensor = !strncmp(val, "true", sval);
 			continue;
 		}
+
+		if (!strncmp(key, "X-OD-NeedsDownscaling", skey)) {
+			params->needs_downscaling = !strncmp(val, "true", sval);
+			continue;
+		}
 	}
 
 	if (!exec_name || !name) {
@@ -182,15 +191,25 @@ static void enable_vtcon(void)
 	fclose(f);
 }
 
-static void enable_alt_key_map(void)
+static void enable_in_sysfs(const char *fn)
 {
-	FILE *f = fopen(LINKDEV_ALT_MAP_FILE, "w");
+	FILE *f = fopen(fn, "w");
 	if (!f)
 		return;
 
 	char yes = 'Y';
 	fwrite(&yes, 1, 1, f);
 	fclose(f);
+}
+
+static void enable_alt_key_map(void)
+{
+	enable_in_sysfs(LINKDEV_ALT_MAP_FILE);
+}
+
+static void enable_downscaling(void)
+{
+	enable_in_sysfs(JZ4770FB_ENABLE_DOWNSCALING_FILE);
 }
 
 static void enable_gsensor(void)
@@ -329,6 +348,9 @@ int main(int argc, char **argv)
 
 	if (params.needs_gsensor)
 		enable_gsensor();
+
+	if (params.needs_downscaling)
+		enable_downscaling();
 
 	pid_t son = fork();
 	if (!son) {
