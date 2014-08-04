@@ -23,11 +23,11 @@
 #endif
 
 #ifndef LINKDEV_ALT_MAP_FILE
-#define LINKDEV_ALT_MAP_FILE "/sys/module/linkdev/parameters/alt_key_map"
+#define LINKDEV_ALT_MAP_FILE "/sys/devices/platform/linkdev/alt_key_map"
 #endif
 
 #ifndef JZ4770FB_ENABLE_DOWNSCALING_FILE
-#define JZ4770FB_ENABLE_DOWNSCALING_FILE "/sys/module/jz4770_fb/parameters/allow_downscaling"
+#define JZ4770FB_ENABLE_DOWNSCALING_FILE "/sys/devices/platform/jz-lcd.0/allow_downscaling"
 #endif
 
 #define NB_PARAMS_MAX 256
