@@ -354,6 +354,9 @@ int main(int argc, char **argv)
 
 	pid_t son = fork();
 	if (!son) {
+		/* Drop privileges */
+		seteuid(getuid());
+
 		if (!access(args[0], X_OK)) /* Not in the root of the OPK */
 			execv(args[0], args);   /* Maybe in the $PATH? */
 		execvp(args[0], args);
