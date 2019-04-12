@@ -3,6 +3,8 @@
 
 #include "opk.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -11,8 +13,11 @@
 #include <string.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <linux/loop.h>
 
 #ifndef MY_NAME
 #define MY_NAME "opkrun"
@@ -232,6 +237,61 @@ static char *get_url(const char *file)
 	return tmp;
 }
 
+static int logetfree(void)
+{
+	int fd = open("/dev/loop-control", O_RDWR);
+	if (fd < 0) {
+		fprintf(stderr, "Failed to open '/dev/loop-control': %d\n", fd);
+		return -1;
+	}
+
+	int devnr = ioctl(fd, LOOP_CTL_GET_FREE, NULL);
+	if (devnr < 0) {
+		fprintf(stderr, "Failed to acquire free loop device: %d\n", devnr);
+	}
+
+	close(fd);
+	return devnr;
+}
+
+static int losetup(const char *loop, const char *file)
+{
+	unsigned int i;
+	int filefd, loopfd, ret;
+
+	filefd = open(file, O_RDONLY);
+	if (filefd < 0) {
+		fprintf(stderr, "losetup: cannot open '%s': %d\n", file, filefd);
+		return -1;
+	}
+
+	/* We try to open the loop device just a bit after it was created.
+	 * Give some time to udev so that it can set the proper rights. */
+	for (i = 0; i < 100; i++) {
+		loopfd = open(loop, O_RDONLY);
+		if (loopfd < 0 && errno == EACCES)
+			usleep(10000);
+		else
+			break;
+	}
+	if (loopfd < 0) {
+		fprintf(stderr, "losetup: cannot open '%s': %d\n", loop, loopfd);
+		close(filefd);
+		return loopfd;
+	}
+
+	ret = ioctl(loopfd, LOOP_SET_FD, (void *)(intptr_t)filefd);
+	if (ret < 0) {
+		fprintf(stderr, "Cannot setup loop device '%s': %d\n", loop, ret);
+		close(loopfd);
+		close(filefd);
+		return ret;
+	}
+
+	close(filefd);
+	return loopfd;
+}
+
 int main(int argc, char **argv)
 {
 	if (argc < 2) {
@@ -328,10 +388,20 @@ int main(int argc, char **argv)
 	umount(params.mountpoint);
 	mkdir(params.mountpoint, 0755);
 
-	char buf[256];
-	sprintf(buf, "mount -o loop,nodev,nosuid,ro \'%s\' \'%s\' >/dev/null 2>&1",
-				opk_name, params.mountpoint);
-	ret = system(buf);
+	int devnr = logetfree();
+	if (devnr < 0)
+		return devnr;
+
+	char loop_dev[9 + 10 + 1];
+	sprintf(loop_dev, "/dev/loop%i", devnr);
+
+	int loopfd = losetup(loop_dev, opk_name);
+	if (loopfd < 0) {
+		perror("Failed to losetup");
+		return loopfd;
+	}
+
+	ret = mount(loop_dev, params.mountpoint, "squashfs", MS_NODEV | MS_NOSUID | MS_RDONLY, 0);
 	if (ret < 0) {
 		perror("Unable to mount OPK");
 		free(params.mountpoint);
@@ -369,6 +439,9 @@ int main(int argc, char **argv)
 	umount(params.mountpoint);
 	rmdir(params.mountpoint);
 	free(params.mountpoint);
+
+	ioctl(loopfd, LOOP_CLR_FD, (void *)0);
+	close(loopfd);
 
 	for (char **ptr = args; *ptr; ptr++)
 		free(*ptr);
