@@ -35,10 +35,14 @@
 #define JZ4770FB_ENABLE_DOWNSCALING_FILE "/sys/devices/platform/jz-lcd.0/allow_downscaling"
 #endif
 
+#ifndef OPK_MOUNTPOINT
+#define OPK_MOUNTPOINT "/opk"
+#endif
+
 #define NB_PARAMS_MAX 256
 
 struct params {
-	char *mountpoint, *exec[NB_PARAMS_MAX];
+	char *exec[NB_PARAMS_MAX];
 	bool needs_terminal, needs_joystick, needs_gsensor, needs_downscaling;
 };
 
@@ -100,8 +104,8 @@ close_opk:
 static int read_params(struct OPK *opk, struct params *params)
 {
 	memset(params, 0, sizeof(*params));
-	const char *exec_name = NULL, *name = NULL;
-	size_t exec_name_len = 0, name_len = 0;
+	const char *exec_name = NULL;
+	size_t exec_name_len = 0;
 
 	for (;;) {
 		const char *key, *val;
@@ -114,12 +118,6 @@ static int read_params(struct OPK *opk, struct params *params)
 
 		if (!ret)
 			break;
-
-		if (!strncmp(key, "Name", skey)) {
-			name_len = sval;
-			name = val;
-			continue;
-		}
 
 		if (!strncmp(key, "Exec", skey)) {
 			exec_name_len = sval;
@@ -148,7 +146,7 @@ static int read_params(struct OPK *opk, struct params *params)
 		}
 	}
 
-	if (!exec_name || !name) {
+	if (!exec_name) {
 		fprintf(stderr, "Unable to find the executable name\n");
 		return -1;
 	}
@@ -173,13 +171,6 @@ static int read_params(struct OPK *opk, struct params *params)
 
 	params->exec[arg] = NULL;
 
-	params->mountpoint = malloc(name_len + 6);
-	sprintf(params->mountpoint, "/mnt/%.*s", (int) name_len, name);
-
-	for (ptr = params->mountpoint + 5; *ptr; ptr++) {
-		if (*ptr == '\'' || *ptr == '\\')
-			*ptr = '_';
-	}
 	return 0;
 }
 
@@ -385,8 +376,8 @@ int main(int argc, char **argv)
 
 	free(params.exec[0]);
 
-	umount(params.mountpoint);
-	mkdir(params.mountpoint, 0755);
+	umount(OPK_MOUNTPOINT);
+	mkdir(OPK_MOUNTPOINT, 0755);
 
 	int devnr = logetfree();
 	if (devnr < 0)
@@ -401,14 +392,13 @@ int main(int argc, char **argv)
 		return loopfd;
 	}
 
-	ret = mount(loop_dev, params.mountpoint, "squashfs", MS_NODEV | MS_NOSUID | MS_RDONLY, 0);
+	ret = mount(loop_dev, OPK_MOUNTPOINT, "squashfs", MS_NODEV | MS_NOSUID | MS_RDONLY, 0);
 	if (ret < 0) {
 		perror("Unable to mount OPK");
-		free(params.mountpoint);
 		return EXIT_FAILURE;
 	}
 
-	chdir(params.mountpoint);
+	chdir(OPK_MOUNTPOINT);
 
 	if (params.needs_terminal)
 		enable_vtcon();
@@ -436,9 +426,8 @@ int main(int argc, char **argv)
 	waitpid(son, &status, 0);
 
 	chdir("/");
-	umount(params.mountpoint);
-	rmdir(params.mountpoint);
-	free(params.mountpoint);
+	umount(OPK_MOUNTPOINT);
+	rmdir(OPK_MOUNTPOINT);
 
 	ioctl(loopfd, LOOP_CLR_FD, (void *)0);
 	close(loopfd);
