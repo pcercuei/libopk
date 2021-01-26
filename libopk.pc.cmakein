@@ -8,5 +8,5 @@ Description: library to read files from OPK archives
 Version: @PROJECT_VERSION@
 
 Requires:
-Libs: -L${libdir} -ini -lopk
+Libs: -L${libdir} -lopk -lini -lz
 Cflags: -I${includedir} @OPK_STATIC_CFLAGS@
