@@ -6,10 +6,6 @@ include(GNUInstallDirs)
 set(INSTALL_PKGCONFIG_DIR "${CMAKE_INSTALL_LIBDIR}/pkgconfig"
 	CACHE PATH "Installation directory for pkgconfig (.pc) files")
 
-if (CMAKE_COMPILER_IS_GNUCC)
-	add_compile_options(-fvisibility=hidden -Wall -Wextra)
-endif ()
-
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
 if (NOT BUILD_SHARED_LIBS)
 	set(OPK_STATIC_CFLAGS -Dlibopk_STATIC)
@@ -37,8 +33,11 @@ add_executable(opkrun opkrun.c)
 
 target_compile_definitions(opk PUBLIC ${INI_CFLAGS_OTHER} ${OPK_STATIC_CFLAGS})
 
-if (CMAKE_COMPILER_IS_GNUCC AND NOT WIN32)
-	target_compile_options(opk PRIVATE -fvisibility=hidden)
+if (CMAKE_COMPILER_IS_GNUCC)
+	target_compile_options(opk PRIVATE -Wall -Wextra)
+	if (NOT WIN32)
+		target_compile_options(opk PRIVATE -fvisibility=hidden)
+	endif()
 endif()
 
 set_target_properties(opk opkinfo opkrun PROPERTIES
