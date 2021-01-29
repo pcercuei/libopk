@@ -6,12 +6,26 @@
 extern "C" {
 #endif
 
+#ifdef _WIN32
+#   ifdef opk_EXPORTS
+#	define __api __declspec(dllexport)
+#   elif !defined(libopk_STATIC)
+#	define __api __declspec(dllimport)
+#	else
+#	define __api
+#   endif
+#elif __GNUC__ >= 4
+#   define __api __attribute__((visibility ("default")))
+#else
+#   define __api
+#endif
+
 #include <stdlib.h>
 
 struct OPK;
 
-struct OPK *opk_open(const char *opk_filename);
-void opk_close(struct OPK *opk);
+__api struct OPK *opk_open(const char *opk_filename);
+__api void opk_close(struct OPK *opk);
 
 /* Open the next meta-data file.
  * if 'filename' is set, the pointer passed as argument will
@@ -24,7 +38,7 @@ void opk_close(struct OPK *opk);
  *  0 if no more meta-data file can be found,
  *  1 otherwise.
  */
-int opk_open_metadata(struct OPK *opk, const char **filename);
+__api int opk_open_metadata(struct OPK *opk, const char **filename);
 
 /* Read a key/value pair.
  * 'key_chars' and 'val_chars' must be valid pointers. The pointers passed
@@ -37,9 +51,9 @@ int opk_open_metadata(struct OPK *opk, const char **filename);
  *  0 if no more key/value pairs can be found,
  *  1 otherwise.
  */
-int opk_read_pair(struct OPK *opk,
-		const char **key_chars, size_t *key_size,
-		const char **val_chars, size_t *val_size);
+__api int opk_read_pair(struct OPK *opk,
+			const char **key_chars, size_t *key_size,
+			const char **val_chars, size_t *val_size);
 
 /* Extract the file with the given filename from the OPK archive.
  * The 'data' pointer is set to an allocated buffer containing
@@ -52,8 +66,8 @@ int opk_read_pair(struct OPK *opk,
  *  -EIO if the file cannot be read,
  *  0 otherwise.
  */
-int opk_extract_file(struct OPK *opk,
-			const char *name, void **data, size_t *size);
+__api int opk_extract_file(struct OPK *opk, const char *name,
+			   void **data, size_t *size);
 
 #ifdef __cplusplus
 }

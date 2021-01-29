@@ -30,6 +30,10 @@ add_library(opk SHARED libopk.c unsqfs.c opk.h unsqfs.h)
 add_executable(opkinfo opkinfo.c)
 add_executable(opkrun opkrun.c)
 
+if (CMAKE_COMPILER_IS_GNUCC AND NOT WIN32)
+	target_compile_options(opk PRIVATE -fvisibility=hidden)
+endif()
+
 set_target_properties(opk opkinfo opkrun PROPERTIES
 	C_STANDARD 11
 	C_STANDARD_REQUIRED ON
