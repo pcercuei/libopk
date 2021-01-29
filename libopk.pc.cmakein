@@ -9,4 +9,4 @@ Version: @PROJECT_VERSION@
 
 Requires:
 Libs: -L${libdir} -ini -lopk
-Cflags: -I${includedir}
+Cflags: -I${includedir} @OPK_STATIC_CFLAGS@

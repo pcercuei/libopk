@@ -10,6 +10,11 @@ if (CMAKE_COMPILER_IS_GNUCC)
 	add_compile_options(-fvisibility=hidden -Wall -Wextra)
 endif ()
 
+set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
+if (NOT BUILD_SHARED_LIBS)
+	set(OPK_STATIC_CFLAGS -Dlibopk_STATIC)
+endif (NOT BUILD_SHARED_LIBS)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(INI QUIET libini)
 if (NOT INI_FOUND)
@@ -26,9 +31,11 @@ if (ZLIB_FOUND)
 	include_directories(${ZLIB_INCLUDE_DIRS})
 endif (ZLIB_FOUND)
 
-add_library(opk SHARED libopk.c unsqfs.c opk.h unsqfs.h)
+add_library(opk libopk.c unsqfs.c opk.h unsqfs.h)
 add_executable(opkinfo opkinfo.c)
 add_executable(opkrun opkrun.c)
+
+target_compile_definitions(opk PUBLIC ${INI_CFLAGS_OTHER} ${OPK_STATIC_CFLAGS})
 
 if (CMAKE_COMPILER_IS_GNUCC AND NOT WIN32)
 	target_compile_options(opk PRIVATE -fvisibility=hidden)
