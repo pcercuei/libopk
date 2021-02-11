@@ -28,8 +28,6 @@ if (ZLIB_FOUND)
 endif (ZLIB_FOUND)
 
 add_library(opk libopk.c unsqfs.c opk.h unsqfs.h)
-add_executable(opkinfo opkinfo.c)
-add_executable(opkrun opkrun.c)
 
 target_compile_definitions(opk PUBLIC ${INI_CFLAGS_OTHER} ${OPK_STATIC_CFLAGS})
 
@@ -40,12 +38,6 @@ if (CMAKE_COMPILER_IS_GNUCC)
 	endif()
 endif()
 
-set_target_properties(opk opkinfo opkrun PROPERTIES
-	C_STANDARD 11
-	C_STANDARD_REQUIRED ON
-	C_EXTENSIONS OFF
-)
-
 set_target_properties(opk PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
@@ -53,8 +45,6 @@ set_target_properties(opk PROPERTIES
 )
 
 target_link_libraries(opk LINK_PRIVATE ${INI_LIBRARIES} ${ZLIB_LIBRARIES})
-target_link_libraries(opkinfo opk)
-target_link_libraries(opkrun opk)
 
 configure_file(libopk.pc.cmakein libopk.pc @ONLY)
 install(FILES ${CMAKE_BINARY_DIR}/libopk.pc DESTINATION "${INSTALL_PKGCONFIG_DIR}")
@@ -62,7 +52,23 @@ install(FILES ${CMAKE_BINARY_DIR}/libopk.pc DESTINATION "${INSTALL_PKGCONFIG_DIR
 set(SETUP_PY ${CMAKE_SOURCE_DIR}/bindings/python/setup.py)
 configure_file(${SETUP_PY}.cmakein ${SETUP_PY} @ONLY)
 
-install(TARGETS opk opkinfo opkrun
+if (NOT WIN32 AND NOT MINGW)
+	add_executable(opkinfo opkinfo.c)
+	target_link_libraries(opkinfo opk)
+
+	add_executable(opkrun opkrun.c)
+	target_link_libraries(opkrun opk)
+
+	set(${OPK_TOOLS} opkinfo opkrun)
+endif()
+
+set_target_properties(opk ${OPK_TOOLS} PROPERTIES
+	C_STANDARD 11
+	C_STANDARD_REQUIRED ON
+	C_EXTENSIONS OFF
+)
+
+install(TARGETS opk ${OPK_TOOLS}
 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
