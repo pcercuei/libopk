@@ -47,10 +47,14 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#ifndef _WIN32
 #include <fnmatch.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 
 #if USE_GZIP
 #include <zlib.h>
@@ -1005,7 +1009,12 @@ struct PkgData *opk_sqfs_open(const char *image_name)
 	pdata->inode_table.pdata = pdata;
 	pdata->directory_table.pdata = pdata;
 
-	if ((pdata->fd = open(image_name, O_RDONLY)) == -1) {
+	int flags = O_RDONLY;
+#ifdef _WIN32
+	flags |= O_BINARY;
+#endif
+
+	if ((pdata->fd = open(image_name, flags)) == -1) {
 		ERROR("Could not open \"%s\": %s\n", image_name, strerror(errno));
 		goto fail_free;
 	}
