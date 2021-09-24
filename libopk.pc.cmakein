@@ -11,3 +11,4 @@ Libs: -L${libdir} -lopk
 Cflags: -I${includedir} @OPK_STATIC_CFLAGS@
 
 Requires.private: libini zlib
+Libs.private: -lini -lz
